@@ -230,7 +230,7 @@ static void on_handshake_write(uv_write_t *req, int status);
 static void ssl_print_error() {
   const char *data;
   int flags;
-  int err;
+  unsigned long err;
   while ((err = ERR_get_error_line_data(NULL, NULL, &data, &flags)) != 0) {
     char buf[256];
     ERR_error_string_n(err, buf, sizeof(buf));
@@ -261,7 +261,7 @@ static int do_handshake(uvtls_t *tls) {
     uv_buf_t bufs;
     bufs.base = req->data;
     bufs.len = (size_t)size;
-    return uv_write(req, (uv_stream_t *)&tls->handle, &bufs, 1,
+    return uv_write(req, (uv_stream_t *)tls->stream, &bufs, 1,
                     on_handshake_write);
   }
 
@@ -299,7 +299,7 @@ static void on_handshake_read(uv_stream_t *stream, ssize_t nread,
   int rc = do_handshake(tls);
   if (rc != 0 || SSL_is_init_finished(session->ssl)) {
     uv_read_stop(stream);
-    tls->connect_req->cb(tls->connect_req, rc);
+    tls->connect_req->cb(tls->connect_req, -1);
     tls->connect_req = NULL;
   }
 }
@@ -331,43 +331,11 @@ static void on_write(uv_write_t *req, int status) {
   write_req->cb(write_req, status);
 }
 
-static void on_close(uv_handle_t *handle) {
-  uvtls_t *tls = (uvtls_t *)handle->data;
-  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
-
-  if (tls->close_cb) {
-    tls->close_cb(tls);
-  }
-
-  SSL_CTX_free(SSL_get_SSL_CTX(session->ssl));
-  SSL_free(session->ssl);
-  free(session);
-}
-
-static void on_connect(uv_connect_t *req, int status) {
-  uvtls_t *tls = (uvtls_t *)req->handle->data;
-  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
-
-  if (status != 0) {
-    tls->connect_req->cb(tls->connect_req, status);
-    return;
-  }
-
-  int rc = do_handshake(tls);
-  if (rc != 0 || SSL_is_init_finished(session->ssl)) {
-    if (rc != 0) {
-    }
-    tls->connect_req->cb(tls->connect_req, -1); /* FIXME */
-    tls->connect_req = NULL;
-  }
-
-  uv_read_start((uv_stream_t *)req->handle, on_alloc, on_handshake_read);
-}
-
 int uvtls_lib_init() {
   SSL_library_init();
   SSL_load_error_strings();
   OpenSSL_add_all_algorithms();
+  return 0;
 }
 
 void uvtls_lib_cleanup() {
@@ -385,15 +353,12 @@ void uvtls_lib_cleanup() {
 #endif
 }
 
-int uvtls_init(uv_loop_t *loop, uvtls_t *tls) {
+int uvtls_init(uvtls_t *tls, uv_stream_t *stream) {
   ringbuffer_bio_init_once();
-  int rc = uv_tcp_init(loop, &tls->handle);
-  if (rc != 0)
-    return rc;
-
-  tls->handle.data = tls;
+  tls->stream = stream;
   tls->read_cb = NULL;
-  tls->close_cb = NULL;
+  tls->connect_req = NULL;
+  /* FIXME: OOM */
   uvtls_ringbuffer_init(&tls->incoming);
   uvtls_ringbuffer_init(&tls->outgoing);
   tls->impl = uvtls_session_create(NULL, &tls->incoming, &tls->outgoing);
@@ -404,34 +369,47 @@ int uvtls_init(uv_loop_t *loop, uvtls_t *tls) {
 
 int uvtls_init_copy(uvtls_t *orig, uvtls_t *copy) { return -1; }
 
-void uvtls_close(uvtls_t *tls, uvtls_close_cb cb) {
-  tls->close_cb = cb;
-  uv_close((uv_handle_t *)&tls->handle, on_close);
+void uvtls_close(uvtls_t *tls) {
+  uvtls_read_stop(tls);
+
+  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
+  SSL_CTX_free(SSL_get_SSL_CTX(session->ssl));
+  SSL_free(session->ssl);
+  free(session);
 }
 
-int uvtls_connect(uvtls_connect_t *req, uvtls_t *tls,
-                  const struct sockaddr *addr, uvtls_connect_cb cb) {
-  req->req.data = req;
-  req->cb = cb;
+int uvtls_connect(uvtls_connect_t *req, uvtls_t *tls, uvtls_connect_cb cb) {
+  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
+
   req->tls = tls;
+  req->cb = cb;
+  tls->stream->data = tls;
   tls->connect_req = req;
-  return uv_tcp_connect(&req->req, &tls->handle, addr, on_connect);
+
+  int rc = do_handshake(tls);
+  assert(!SSL_is_init_finished(session->ssl) &&
+         "Handshake shouldn't be finished");
+  if (rc != 0) {
+    return -1;
+  }
+
+  return uv_read_start(tls->stream, on_alloc, on_handshake_read);
 }
 
 int uvtls_read_start(uvtls_t *tls, uvtls_read_cb read_cb) {
+  tls->stream->data = tls;
   tls->read_cb = read_cb;
-  return uv_read_start((uv_stream_t *)&tls->handle, on_alloc, on_read);
+  return uv_read_start(tls->stream, on_alloc, on_read);
 }
 
-int uvtls_read_stop(uvtls_t *tls) {
-  return uv_read_stop((uv_stream_t *)&tls->handle);
-}
+int uvtls_read_stop(uvtls_t *tls) { return uv_read_stop(tls->stream); }
 
 int uvtls_write(uvtls_write_t *req, uvtls_t *tls, const uv_buf_t bufs[],
                 unsigned int nbufs, uvtls_write_cb cb) {
   req->req.data = req;
   req->cb = cb;
   req->tls = tls;
+  tls->stream->data = tls;
 
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
   for (unsigned int i = 0; i < nbufs; ++i) {
@@ -444,6 +422,6 @@ int uvtls_write(uvtls_write_t *req, uvtls_t *tls, const uv_buf_t bufs[],
   req->to_commit = 0;
   for (int i = 0; i < n; ++i)
     req->to_commit += temp[i].len;
-  return uv_write(&req->req, (uv_stream_t *)&tls->handle, temp, (unsigned int)n,
+  return uv_write(&req->req, (uv_stream_t *)tls->stream, temp, (unsigned int)n,
                   on_write);
 }

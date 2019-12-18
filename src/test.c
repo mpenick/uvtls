@@ -446,10 +446,10 @@ void test_tail_head_commit(uvtls_ringbuffer_t *rb, const char *buf) {
     test_head_commit(rb, length, actual);
 
     if (memcmp(expected, actual, sizeof(expected)) != 0) {
-      printf("failed %d (length %lu)\n", i, length);
+      printf("failed %d (length %d)\n", i, length);
       abort();
     } else {
-      printf("success %d (length %lu)\n", i, length);
+      printf("success %d (length %d)\n", i, length);
     }
   }
 }
@@ -470,20 +470,9 @@ void test_ringbuffer() {
   uvtls_ringbuffer_destroy(&rb);
 }
 
-void on_close(uvtls_t *tls) { printf("\nclosed\n"); }
+void on_write(uvtls_write_t *req, int status);
 
-void on_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
-  if (nread > 0) {
-    printf("%.*s", (int)nread, buf->base);
-  } else {
-    uvtls_close(tls, on_close);
-  }
-}
-
-void on_write(uvtls_write_t *req, int status) {
-  uvtls_read_start(req->tls, on_read);
-  free(req);
-}
+void on_close(uv_handle_t *handle) { printf("\nclose\n"); }
 
 void on_connect(uvtls_connect_t *req, int status) {
   // printf("status %d\n", status);
@@ -494,26 +483,56 @@ void on_connect(uvtls_connect_t *req, int status) {
              "Host: www.google.com\r\n\r\n";
   buf.len = strlen(buf.base);
   uvtls_write(write_req, req->tls, &buf, 1, on_write);
+
+  free(req);
+}
+
+void on_tcp_connect(uv_connect_t *req, int status) {
+  uvtls_t *tls = (uvtls_t *)req->data;
+  uvtls_connect_t *connect_req =
+      (uvtls_connect_t *)malloc(sizeof(uvtls_connect_t));
+  uvtls_connect(connect_req, tls, on_connect);
+}
+
+void on_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
+  if (nread > 0) {
+    printf("%.*s", (int)nread, buf->base);
+  } else {
+    uv_close((uv_handle_t *)tls->stream, on_close);
+  }
+}
+
+void on_write(uvtls_write_t *req, int status) {
+  uvtls_read_start(req->tls, on_read);
+  free(req);
 }
 
 void test() {
   uvtls_lib_init();
 
   uv_loop_t loop;
+  uv_tcp_t tcp;
   uvtls_t tls;
 
   uv_loop_init(&loop);
-  uvtls_init(&loop, &tls);
 
-  uvtls_connect_t req;
+  uvtls_init(&tls, (uv_stream_t *)&tcp);
 
   struct sockaddr_in addr;
   uv_ip4_addr("172.217.164.174", 443, &addr);
-  uvtls_connect(&req, &tls, &addr, on_connect);
+
+  uv_tcp_init(&loop, &tcp);
+
+  uv_connect_t connect_req;
+  connect_req.data = &tls;
+  uv_tcp_connect(&connect_req, &tcp, (const struct sockaddr *)&addr,
+                 on_tcp_connect);
+
   uv_run(&loop, UV_RUN_DEFAULT);
 
   uv_loop_close(&loop);
 
+  uvtls_close(&tls);
   uvtls_lib_cleanup();
 }
 int main() {
