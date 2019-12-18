@@ -508,20 +508,21 @@ void on_write(uvtls_write_t *req, int status) {
 }
 
 void test() {
-  uvtls_lib_init();
-
   uv_loop_t loop;
   uv_tcp_t tcp;
   uvtls_t tls;
-
-  uv_loop_init(&loop);
-
-  uvtls_init(&tls, (uv_stream_t *)&tcp);
+  uvtls_context_t tls_context;
 
   struct sockaddr_in addr;
   uv_ip4_addr("172.217.164.174", 443, &addr);
 
+  uv_loop_init(&loop);
   uv_tcp_init(&loop, &tcp);
+
+  uvtls_context_init(&tls_context, UVTLS_CONTEXT_LIB_INIT);
+  uvtls_context_set_verify_flags(&tls_context, UVTLS_VERIFY_NONE);
+
+  uvtls_init(&tls, &tls_context, (uv_stream_t *)&tcp);
 
   uv_connect_t connect_req;
   connect_req.data = &tls;
@@ -533,7 +534,7 @@ void test() {
   uv_loop_close(&loop);
 
   uvtls_close(&tls);
-  uvtls_lib_cleanup();
+  uvtls_context_close(&tls_context);
 }
 int main() {
   test();
