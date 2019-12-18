@@ -48,6 +48,4 @@ int uvtls_ringbuffer_head_blocks(const uvtls_ringbuffer_t *rb, uv_buf_t *bufs,
 
 int uvtls_ringbuffer_head_blocks_commit(uvtls_ringbuffer_t *rb, int size);
 
-int uvtls_ringbuffer_find(const uvtls_ringbuffer_t *rb, int c, int size);
-
 #endif /* UVTLS_RINGBUFFER_H */

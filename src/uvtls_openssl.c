@@ -15,21 +15,24 @@
 #if defined(OPENSSL_VERSION_NUMBER) && !defined(LIBRESSL_VERSION_NUMBER)
 #if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
 #define UVTLS_CLIENT_METHOD TLS_client_method
+#define UVTLS_SERVER_METHOD TLS_server_method
 #else
 #define UVTLS_CLIENT_METHOD SSLv23_client_method
+#define UVTLS_SERVER_METHOD SSLv23_server_method
 #endif
 #else
 #if (LIBRESSL_VERSION_NUMBER >= 0x20302000L)
 #define UVTLS_CLIENT_METHOD TLS_client_method
+#define UVTLS_SERVER_METHOD TLS_server_method
 #else
 #define UVTLS_CLIENT_METHOD SSLv23_client_method
+#define UVTLS_SERVER_METHOD SSLv23_server_method
 #endif
 #endif
 
 #define UVTLS_HANDSHAKE_MAX_BUFFER_SIZE UVTLS_RING_BUFFER_BLOCK_SIZE
 
-#ifdef UVTLS_DEBUG
-#define RINT_INFO(ssl, w, flag, msg)                                           \
+#define PRINT_INFO(ssl, w, flag, msg)                                          \
   do {                                                                         \
     if (w & flag) {                                                            \
       fprintf(stderr, "%s - %s - %s\n", msg, SSL_state_string(ssl),            \
@@ -42,15 +45,14 @@ static void info_callback(const SSL *ssl, int where, int ret) {
     fprintf(stderr, "info_callback, error occurred.\n");
     return;
   }
-  PRINT_INFO(ssl, where, UVTLS_CB_LOOP, "LOOP");
-  PRINT_INFO(ssl, where, UVTLS_CB_EXIT, "EXIT");
-  PRINT_INFO(ssl, where, UVTLS_CB_READ, "READ");
-  PRINT_INFO(ssl, where, UVTLS_CB_WRITE, "WRITE");
-  PRINT_INFO(ssl, where, UVTLS_CB_ALERT, "ALERT");
-  PRINT_INFO(ssl, where, UVTLS_CB_HANDSHAKE_DONE, "HANDSHAKE DONE");
+  PRINT_INFO(ssl, where, SSL_CB_LOOP, "LOOP");
+  PRINT_INFO(ssl, where, SSL_CB_EXIT, "EXIT");
+  PRINT_INFO(ssl, where, SSL_CB_READ, "READ");
+  PRINT_INFO(ssl, where, SSL_CB_WRITE, "WRITE");
+  PRINT_INFO(ssl, where, SSL_CB_ALERT, "ALERT");
+  PRINT_INFO(ssl, where, SSL_CB_HANDSHAKE_DONE, "HANDSHAKE DONE");
 }
 #undef PRINT_INFO
-#endif
 
 static uv_once_t lib_init_guard__ = UV_ONCE_INIT;
 
@@ -295,7 +297,7 @@ static void ssl_print_error() {
 static int do_handshake(uvtls_t *tls) {
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
 
-  int rc = SSL_connect(session->ssl);
+  int rc = SSL_do_handshake(session->ssl);
   if (rc <= 0) {
     int err = SSL_get_error(session->ssl, rc);
     if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_NONE) {
@@ -366,8 +368,8 @@ static void on_handshake_write(uv_write_t *req, int status) {
   free(req);
 }
 
-static void on_handshake_read(uv_stream_t *stream, ssize_t nread,
-                              const uv_buf_t *buf) {
+static void on_handshake_connect_read(uv_stream_t *stream, ssize_t nread,
+                                      const uv_buf_t *buf) {
 
   uvtls_t *tls = (uvtls_t *)stream->data;
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
@@ -376,7 +378,6 @@ static void on_handshake_read(uv_stream_t *stream, ssize_t nread,
       (nread != UV_EOF && nread < 0)) {
     uv_read_stop(stream);
     tls->connect_req->cb(tls->connect_req, -1);
-    tls->connect_req = NULL;
     return;
   }
 
@@ -386,11 +387,34 @@ static void on_handshake_read(uv_stream_t *stream, ssize_t nread,
   if (rc != 0) {
     uv_read_stop(stream);
     tls->connect_req->cb(tls->connect_req, -1);
-    tls->connect_req = NULL;
   } else if (SSL_is_init_finished(session->ssl)) {
     uv_read_stop(stream);
     tls->connect_req->cb(tls->connect_req, verify(tls));
-    tls->connect_req = NULL;
+  }
+}
+
+static void on_handshake_accept_read(uv_stream_t *stream, ssize_t nread,
+                                     const uv_buf_t *buf) {
+
+  uvtls_t *tls = (uvtls_t *)stream->data;
+  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
+
+  if ((nread == UV_EOF && !SSL_is_init_finished(session->ssl)) ||
+      (nread != UV_EOF && nread < 0)) {
+    uv_read_stop(stream);
+    tls->accept_cb(tls, -1);
+    return;
+  }
+
+  uvtls_ringbuffer_tail_block_commit(&tls->incoming, (int)nread);
+
+  int rc = do_handshake(tls);
+  if (rc != 0) {
+    uv_read_stop(stream);
+    tls->accept_cb(tls, -1);
+  } else if (SSL_is_init_finished(session->ssl)) {
+    uv_read_stop(stream);
+    tls->accept_cb(tls, 0);
   }
 }
 
@@ -425,9 +449,19 @@ int uvtls_context_init(uvtls_context_t *context, int flags) {
   if (flags & UVTLS_CONTEXT_LIB_INIT) {
     uv_once(&lib_init_guard__, lib_init);
   }
-  context->impl = SSL_CTX_new(UVTLS_CLIENT_METHOD()); /* FIXME: OOM */
+  SSL_CTX *ssl_ctx = SSL_CTX_new((flags & UVTLS_CONTEXT_SERVER_MODE)
+                                     ? UVTLS_SERVER_METHOD()
+                                     : UVTLS_CLIENT_METHOD()); /* FIXME: OOM */
+
+  context->impl = ssl_ctx;
   context->verify_flags = UVTLS_VERIFY_PEER_CERT;
-  SSL_CTX_set_verify((SSL_CTX *)context->impl, SSL_VERIFY_NONE, NULL);
+
+  if (flags & UVTLS_CONTEXT_DEBUG) {
+    SSL_CTX_set_info_callback(ssl_ctx, info_callback);
+  }
+
+  SSL_CTX_set_ecdh_auto(ssl_ctx, 1);
+  SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
   return 0;
 }
 
@@ -454,8 +488,8 @@ int uvtls_context_add_trusted_cert(uvtls_context_t *context, const char *cert,
   return 0;
 }
 
-int uvtls_context_set_client_cert(uvtls_context_t *context, const char *cert,
-                                  size_t length) {
+int uvtls_context_set_cert(uvtls_context_t *context, const char *cert,
+                           size_t length) {
   X509 *x509 = load_cert(cert, length);
   if (x509 == NULL) {
     return -1; /* FIXME: error code */
@@ -466,8 +500,8 @@ int uvtls_context_set_client_cert(uvtls_context_t *context, const char *cert,
   return 0;
 }
 
-int uvtls_context_set_client_key(uvtls_context_t *context, const char *key,
-                                 size_t length) {
+int uvtls_context_set_private_key(uvtls_context_t *context, const char *key,
+                                  size_t length) {
   EVP_PKEY *pkey = load_key(key, length);
   if (pkey == NULL) {
     return -1; /* FIXME: error code */
@@ -485,6 +519,7 @@ int uvtls_init(uvtls_t *tls, uvtls_context_t *context, uv_stream_t *stream) {
   tls->hostname[0] = '\0';
   tls->read_cb = NULL;
   tls->connect_req = NULL;
+  tls->connection_cb = NULL;
   /* FIXME: OOM */
   uvtls_ringbuffer_init(&tls->incoming);
   uvtls_ringbuffer_init(&tls->outgoing);
@@ -521,6 +556,8 @@ int uvtls_connect(uvtls_connect_t *req, uvtls_t *tls, uvtls_connect_cb cb) {
   tls->stream->data = tls;
   tls->connect_req = req;
 
+  SSL_set_connect_state(session->ssl);
+
   int rc = do_handshake(tls);
   assert(!SSL_is_init_finished(session->ssl) &&
          "Handshake shouldn't be finished");
@@ -528,7 +565,40 @@ int uvtls_connect(uvtls_connect_t *req, uvtls_t *tls, uvtls_connect_cb cb) {
     return -1;
   }
 
-  return uv_read_start(tls->stream, on_alloc, on_handshake_read);
+  return uv_read_start(tls->stream, on_alloc, on_handshake_connect_read);
+}
+
+static void on_connection(uv_stream_t *server, int status) {
+  uvtls_t *tls = (uvtls_t *)server->data;
+  tls->connection_cb(tls, status);
+}
+
+int uvtls_listen(uvtls_t *tls, int backlog, uvtls_connection_cb cb) {
+  tls->stream->data = tls;
+  tls->connection_cb = cb;
+  return uv_listen(tls->stream, backlog, on_connection);
+}
+
+int uvtls_accept(uvtls_t *server, uvtls_t *client, uvtls_accept_cb cb) {
+  uvtls_session_t *session = (uvtls_session_t *)client->impl;
+
+  int rc = uv_accept(server->stream, client->stream);
+  if (rc != 0) {
+    return -1;
+  }
+
+  SSL_set_accept_state(session->ssl);
+
+  rc = do_handshake(client);
+  assert(!SSL_is_init_finished(session->ssl) &&
+         "Handshake shouldn't be finished");
+  if (rc != 0) {
+    return -1;
+  }
+
+  client->stream->data = client;
+  client->accept_cb = cb;
+  return uv_read_start(client->stream, on_alloc, on_handshake_accept_read);
 }
 
 int uvtls_read_start(uvtls_t *tls, uvtls_read_cb read_cb) {
