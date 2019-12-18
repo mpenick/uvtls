@@ -470,73 +470,7 @@ void test_ringbuffer() {
   uvtls_ringbuffer_destroy(&rb);
 }
 
-void on_write(uvtls_write_t *req, int status);
-
-void on_close(uv_handle_t *handle) { printf("\nclose\n"); }
-
-void on_connect(uvtls_connect_t *req, int status) {
-  // printf("status %d\n", status);
-  uvtls_write_t *write_req = (uvtls_write_t *)malloc(sizeof(uvtls_write_t));
-
-  uv_buf_t buf;
-  buf.base = "GET / HTTP/1.0\r\n"
-             "Host: www.google.com\r\n\r\n";
-  buf.len = strlen(buf.base);
-  uvtls_write(write_req, req->tls, &buf, 1, on_write);
-
-  free(req);
-}
-
-void on_tcp_connect(uv_connect_t *req, int status) {
-  uvtls_t *tls = (uvtls_t *)req->data;
-  uvtls_connect_t *connect_req =
-      (uvtls_connect_t *)malloc(sizeof(uvtls_connect_t));
-  uvtls_connect(connect_req, tls, on_connect);
-}
-
-void on_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
-  if (nread > 0) {
-    printf("%.*s", (int)nread, buf->base);
-  } else {
-    uv_close((uv_handle_t *)tls->stream, on_close);
-  }
-}
-
-void on_write(uvtls_write_t *req, int status) {
-  uvtls_read_start(req->tls, on_read);
-  free(req);
-}
-
-void test() {
-  uv_loop_t loop;
-  uv_tcp_t tcp;
-  uvtls_t tls;
-  uvtls_context_t tls_context;
-
-  struct sockaddr_in addr;
-  uv_ip4_addr("172.217.164.174", 443, &addr);
-
-  uv_loop_init(&loop);
-  uv_tcp_init(&loop, &tcp);
-
-  uvtls_context_init(&tls_context, UVTLS_CONTEXT_LIB_INIT);
-  uvtls_context_set_verify_flags(&tls_context, UVTLS_VERIFY_NONE);
-
-  uvtls_init(&tls, &tls_context, (uv_stream_t *)&tcp);
-
-  uv_connect_t connect_req;
-  connect_req.data = &tls;
-  uv_tcp_connect(&connect_req, &tcp, (const struct sockaddr *)&addr,
-                 on_tcp_connect);
-
-  uv_run(&loop, UV_RUN_DEFAULT);
-
-  uv_loop_close(&loop);
-
-  uvtls_close(&tls);
-  uvtls_context_close(&tls_context);
-}
 int main() {
-  test();
+  test_ringbuffer();
   return 0;
 }

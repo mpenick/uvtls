@@ -9,7 +9,6 @@ static void free_blocks(uvtls_ringbuffer_block_t *blocks) {
   uvtls_ringbuffer_block_t *current = blocks;
   while (current) {
     uvtls_ringbuffer_block_t *next = current->next;
-    // printf("free block: %p\n", current);
     free(current);
     current = next;
   }
@@ -53,9 +52,7 @@ void uvtls_ringbuffer_init(uvtls_ringbuffer_t *rb) {
 }
 
 void uvtls_ringbuffer_destroy(uvtls_ringbuffer_t *rb) {
-  // printf("----Empty----\n");
   free_blocks(rb->empty_blocks);
-  // printf("----In use----\n");
   free_blocks(rb->head.block);
 }
 
@@ -242,37 +239,3 @@ int uvtls_ringbuffer_head_blocks_commit(uvtls_ringbuffer_t *rb, int size) {
          "The ring buffer size should remain the same or decrease");
   return initial_size - rb->size;
 }
-
-/*
-int uvtls_ringbuffer_find(uvtls_ringbuffer_t *rb, int c, int size) {
-  int max = size;
-  if (max > rb->size) {
-    max = rb->size;
-  }
-
-  int searched = 0;
-
-  int index = rb->head.index;
-  int to_search = UVTLS_RING_BUFFER_BLOCK_SIZE - index;
-  for (uvtls_ringbuffer_block_t *current = rb->head.block;
-       current != rb->tail.block && searched < max; current = current->next) {
-    char *pos = current->data + index;
-    for (int i = 0; i < to_search; ++i) {
-      if (pos[i] == c)
-        return i;
-    }
-    index = 0;
-    searched += to_search;
-    to_search = UVTLS_RING_BUFFER_BLOCK_SIZE;
-  }
-
-  to_search = rb->tail.index;
-  char *pos = rb->tail.block->data;
-  for (int i = 0; i < to_search; ++i) {
-    if (pos[i] == c)
-      return i;
-  }
-
-  return max;
-}
-*/
