@@ -1,15 +1,35 @@
 #include <uvtls.h>
 
+#include <stdlib.h>
+#include <string.h>
+
 void on_client_close(uv_handle_t *handle) {
   printf("server client close\n");
   free(handle);
 }
 
+void on_client_write(uvtls_write_t *req, int status) {
+  uv_close((uv_handle_t *)req->tls->stream, on_client_close);
+  uvtls_close(req->tls);
+  free(req->tls);
+  free(req);
+}
+
+void on_client_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
+  printf("server: %.*s\n", (int)nread, buf->base);
+
+  {
+    uvtls_write_t *write_req = (uvtls_write_t *)malloc(sizeof(uvtls_write_t));
+    uv_buf_t buf;
+    buf.base = "<html><head>Hi</head><body>Bye</body></html>";
+    buf.len = strlen(buf.base);
+    uvtls_write(write_req, tls, &buf, 1, on_client_write);
+  }
+}
+
 void on_accept(uvtls_t *client, int status) {
   printf("accept\n");
-  uvtls_close(client);
-  uv_close(client->stream, on_client_close);
-  free(client);
+  uvtls_read_start(client, on_client_read);
 }
 
 void on_connection(uvtls_t *server, int status) {
@@ -20,7 +40,7 @@ void on_connection(uvtls_t *server, int status) {
   uvtls_init(client, server->context, (uv_stream_t *)tcp);
 
   uvtls_accept(server, client, on_accept);
-  uv_close(server->stream, NULL);
+  uv_close((uv_handle_t *)server->stream, NULL);
 }
 
 void on_write(uvtls_write_t *req, int status);
@@ -28,7 +48,6 @@ void on_write(uvtls_write_t *req, int status);
 void on_close(uv_handle_t *handle) { printf("client close\n"); }
 
 void on_connect(uvtls_connect_t *req, int status) {
-  // printf("status %d\n", status);
   uvtls_write_t *write_req = (uvtls_write_t *)malloc(sizeof(uvtls_write_t));
 
   uv_buf_t buf;
@@ -49,7 +68,7 @@ void on_tcp_connect(uv_connect_t *req, int status) {
 
 void on_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
   if (nread > 0) {
-    printf("%.*s", (int)nread, buf->base);
+    printf("client: %.*s\n", (int)nread, buf->base);
   } else {
     uv_close((uv_handle_t *)tls->stream, on_close);
   }
@@ -60,7 +79,7 @@ void on_write(uvtls_write_t *req, int status) {
   free(req);
 }
 
-const char *cert =
+static const char *cert =
     "-----BEGIN CERTIFICATE-----\n"
     "MIIDazCCAlOgAwIBAgIUNgd/YyO3R5N9POwL/k0w3owRZ8YwDQYJKoZIhvcNAQEL\n"
     "BQAwRTELMAkGA1UEBhMCQVUxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM\n"
@@ -83,7 +102,7 @@ const char *cert =
     "GfMmS973Gk5+TU3g4Em9\n"
     "-----END CERTIFICATE-----";
 
-const char *key =
+static const char *key =
     "-----BEGIN PRIVATE KEY-----\n"
     "MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCf128XN+VmcSJa\n"
     "QEvKfd69PzbbW0ogHAWZnfPukmXsd2sapO+0fG1poP8UJpEC1J7T8c76T6OUGbTh\n"
