@@ -150,9 +150,8 @@ void test_client_server() {
   uv_tcp_init(&loop, &server);
   uv_tcp_bind(&server, (const struct sockaddr *)&bindaddr, 0);
 
-  uvtls_context_init(&tls_context_server, UVTLS_CONTEXT_LIB_INIT |
-                                              UVTLS_CONTEXT_SERVER_MODE |
-                                              UVTLS_CONTEXT_DEBUG);
+  uvtls_context_init(&tls_context_server,
+                     UVTLS_CONTEXT_LIB_INIT | UVTLS_CONTEXT_DEBUG);
   uvtls_context_set_verify_flags(&tls_context_server, UVTLS_VERIFY_NONE);
   uvtls_context_set_cert(&tls_context_server, cert, strlen(cert));
   uvtls_context_set_private_key(&tls_context_server, key, strlen(key));
@@ -164,7 +163,7 @@ void test_client_server() {
   /* Client */
   uv_tcp_init(&loop, &client);
   uvtls_context_init(&tls_context_client, UVTLS_CONTEXT_LIB_INIT);
-  uvtls_context_set_verify_flags(&tls_context_client, UVTLS_VERIFY_NONE);
+  uvtls_context_set_verify_flags(&tls_context_client, UVTLS_VERIFY_PEER_CERT);
 
   uvtls_init(&tls_client, &tls_context_client, (uv_stream_t *)&client);
 
@@ -196,7 +195,8 @@ void test_client() {
   uv_loop_init(&loop);
   uv_tcp_init(&loop, &tcp);
 
-  uvtls_context_init(&tls_context, UVTLS_CONTEXT_LIB_INIT);
+  uvtls_context_init(&tls_context,
+                     UVTLS_CONTEXT_LIB_INIT | UVTLS_CONTEXT_DEBUG);
   uvtls_context_set_verify_flags(&tls_context, UVTLS_VERIFY_NONE);
 
   uvtls_init(&tls, &tls_context, (uv_stream_t *)&tcp);

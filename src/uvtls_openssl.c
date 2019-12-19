@@ -14,19 +14,15 @@
 
 #if defined(OPENSSL_VERSION_NUMBER) && !defined(LIBRESSL_VERSION_NUMBER)
 #if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
-#define UVTLS_CLIENT_METHOD TLS_client_method
-#define UVTLS_SERVER_METHOD TLS_server_method
+#define UVTLS_METHOD TLS_method
 #else
-#define UVTLS_CLIENT_METHOD SSLv23_client_method
-#define UVTLS_SERVER_METHOD SSLv23_server_method
+#define UVTLS_METHOD SSLv23_method
 #endif
 #else
 #if (LIBRESSL_VERSION_NUMBER >= 0x20302000L)
-#define UVTLS_CLIENT_METHOD TLS_client_method
-#define UVTLS_SERVER_METHOD TLS_server_method
+#define UVTLS_METHOD TLS_method
 #else
-#define UVTLS_CLIENT_METHOD SSLv23_client_method
-#define UVTLS_SERVER_METHOD SSLv23_server_method
+#define UVTLS_METHOD SSLv23_method
 #endif
 #endif
 
@@ -232,6 +228,7 @@ static X509 *load_cert(const char *cert, size_t length) {
   if (length > INT_MAX) {
     return NULL;
   }
+
   BIO *bio = BIO_new_mem_buf(cert, (int)length);
   if (bio == NULL) {
     return NULL;
@@ -239,7 +236,7 @@ static X509 *load_cert(const char *cert, size_t length) {
 
   X509 *x509 = PEM_read_bio_X509(bio, NULL, NULL, NULL);
   if (x509 == NULL) {
-    /* FIXME: error handling */
+    return NULL;
   }
 
   BIO_free_all(bio);
@@ -258,7 +255,7 @@ static EVP_PKEY *load_key(const char *key, size_t length) {
 
   EVP_PKEY *pkey = PEM_read_bio_PrivateKey(bio, NULL, NULL, NULL);
   if (pkey == NULL) {
-    /* FIXME: error handling */
+    return NULL;
   }
 
   BIO_free_all(bio);
@@ -311,10 +308,11 @@ static int do_handshake(uvtls_t *tls) {
     int err = SSL_get_error(session->ssl, rc);
     if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_NONE) {
       ssl_print_error();
-      return -1;
+      return UVTLS_EHANDSHAKE;
     }
   }
 
+  /* FIXME: Why reading the bio instead of ring buffer */
   char data[UVTLS_HANDSHAKE_MAX_BUFFER_SIZE];
   int size =
       BIO_read(session->outgoing_bio, data, UVTLS_HANDSHAKE_MAX_BUFFER_SIZE);
@@ -339,22 +337,25 @@ static int verify(uvtls_t *tls) {
     return 0;
   }
 
-  int result = -1; /* FIXME: error code */
+  int result = UVTLS_UNKNOWN;
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
 
   X509 *peer_cert = SSL_get_peer_certificate(session->ssl);
   if (peer_cert == NULL) {
+    result = UVTLS_ENOPEERCERT;
     goto error;
   }
 
   if (verify_flags & UVTLS_VERIFY_PEER_CERT) {
     long rc = SSL_get_verify_result(session->ssl);
     if (rc != X509_V_OK) {
+      result = UVTLS_EBADPEERCERT;
       goto error;
     }
   }
 
   if (verify_flags & UVTLS_VERIFY_PEER_IDENTITY) {
+    result = UVTLS_EBADPEERIDNT;
     goto error;
   }
 
@@ -386,7 +387,7 @@ static void on_handshake_connect_read(uv_stream_t *stream, ssize_t nread,
   if ((nread == UV_EOF && !SSL_is_init_finished(session->ssl)) ||
       (nread != UV_EOF && nread < 0)) {
     uv_read_stop(stream);
-    tls->connect_req->cb(tls->connect_req, -1);
+    tls->connect_req->cb(tls->connect_req, (int)nread);
     return;
   }
 
@@ -395,7 +396,7 @@ static void on_handshake_connect_read(uv_stream_t *stream, ssize_t nread,
   int rc = do_handshake(tls);
   if (rc != 0) {
     uv_read_stop(stream);
-    tls->connect_req->cb(tls->connect_req, -1);
+    tls->connect_req->cb(tls->connect_req, rc);
   } else if (SSL_is_init_finished(session->ssl)) {
     uv_read_stop(stream);
     tls->connect_req->cb(tls->connect_req, verify(tls));
@@ -411,7 +412,7 @@ static void on_handshake_accept_read(uv_stream_t *stream, ssize_t nread,
   if ((nread == UV_EOF && !SSL_is_init_finished(session->ssl)) ||
       (nread != UV_EOF && nread < 0)) {
     uv_read_stop(stream);
-    tls->accept_cb(tls, -1);
+    tls->accept_cb(tls, (int)nread);
     return;
   }
 
@@ -420,7 +421,7 @@ static void on_handshake_accept_read(uv_stream_t *stream, ssize_t nread,
   int rc = do_handshake(tls);
   if (rc != 0) {
     uv_read_stop(stream);
-    tls->accept_cb(tls, -1);
+    tls->accept_cb(tls, rc);
   } else if (SSL_is_init_finished(session->ssl)) {
     uv_read_stop(stream);
     tls->accept_cb(tls, 0);
@@ -463,9 +464,7 @@ int uvtls_context_init(uvtls_context_t *context, int flags) {
   if (flags & UVTLS_CONTEXT_LIB_INIT) {
     uv_once(&lib_init_guard__, lib_init);
   }
-  SSL_CTX *ssl_ctx = SSL_CTX_new((flags & UVTLS_CONTEXT_SERVER_MODE)
-                                     ? UVTLS_SERVER_METHOD()
-                                     : UVTLS_CLIENT_METHOD()); /* FIXME: OOM */
+  SSL_CTX *ssl_ctx = SSL_CTX_new(UVTLS_METHOD()); /* FIXME: OOM */
 
   context->impl = ssl_ctx;
   context->verify_flags = UVTLS_VERIFY_PEER_CERT;
@@ -493,7 +492,7 @@ int uvtls_context_add_trusted_cert(uvtls_context_t *context, const char *cert,
 
   X509 *x509 = load_cert(cert, length);
   if (x509 == NULL) {
-    return -1; /* FIXME: error code */
+    return UVTLS_EINVAL;
   }
 
   X509_STORE *trusted_store = SSL_CTX_get_cert_store((SSL_CTX *)context->impl);
@@ -506,7 +505,7 @@ int uvtls_context_set_cert(uvtls_context_t *context, const char *cert,
                            size_t length) {
   X509 *x509 = load_cert(cert, length);
   if (x509 == NULL) {
-    return -1; /* FIXME: error code */
+    return UVTLS_EINVAL;
   }
 
   SSL_CTX_use_certificate((SSL_CTX *)context->impl, x509);
@@ -518,7 +517,7 @@ int uvtls_context_set_private_key(uvtls_context_t *context, const char *key,
                                   size_t length) {
   EVP_PKEY *pkey = load_key(key, length);
   if (pkey == NULL) {
-    return -1; /* FIXME: error code */
+    return UVTLS_EINVAL;
   }
 
   SSL_CTX_use_PrivateKey((SSL_CTX *)context->impl, pkey);
@@ -555,7 +554,7 @@ void uvtls_close(uvtls_t *tls) {
 
 int uvtls_set_hostname(uvtls_t *tls, const char *hostname, size_t length) {
   if (length + 1 > sizeof(tls->hostname)) {
-    return -1; /* FIXME: error code */
+    return UV_E2BIG; /* FIXME: error code */
   }
   tls->hostname[length] = '\0';
   memcpy(tls->hostname, hostname, length);
@@ -576,7 +575,7 @@ int uvtls_connect(uvtls_connect_t *req, uvtls_t *tls, uvtls_connect_cb cb) {
   assert(!SSL_is_init_finished(session->ssl) &&
          "Handshake shouldn't be finished");
   if (rc != 0) {
-    return -1;
+    return UVTLS_EHANDSHAKE;
   }
 
   return uv_read_start(tls->stream, on_alloc, on_handshake_connect_read);
@@ -598,7 +597,7 @@ int uvtls_accept(uvtls_t *server, uvtls_t *client, uvtls_accept_cb cb) {
 
   int rc = uv_accept(server->stream, client->stream);
   if (rc != 0) {
-    return -1;
+    return rc;
   }
 
   SSL_set_accept_state(session->ssl);
@@ -607,7 +606,7 @@ int uvtls_accept(uvtls_t *server, uvtls_t *client, uvtls_accept_cb cb) {
   assert(!SSL_is_init_finished(session->ssl) &&
          "Handshake shouldn't be finished");
   if (rc != 0) {
-    return -1;
+    return UVTLS_EHANDSHAKE;
   }
 
   client->stream->data = client;
