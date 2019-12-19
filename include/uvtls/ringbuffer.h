@@ -19,7 +19,7 @@ struct uvtls_ringbuffer_s {
   uvtls_ringbuffer_position_t head;
   uvtls_ringbuffer_block_t *empty_blocks;
   int size;
-  int ret;
+  long ret;
 };
 
 struct uvtls_ringbuffer_block_s {

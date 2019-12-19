@@ -142,7 +142,8 @@ int ringbuffer_bio_read(BIO *bio, char *out, int len) {
   bytes = uvtls_ringbuffer_read(rb, out, len);
 
   if (bytes == 0) {
-    bytes = rb->ret;
+    assert(rb->ret <= INT_MAX && "Value is too big for ring buffer BIO read");
+    bytes = (int)rb->ret;
     if (bytes != 0) {
       BIO_set_retry_read(bio);
     }
@@ -194,7 +195,9 @@ long ringbuffer_bio_ctrl(BIO *bio, int cmd, long num, void *ptr) {
     ret = BIO_get_shutdown(bio);
     break;
   case BIO_CTRL_SET_CLOSE:
-    BIO_set_shutdown(bio, num);
+    assert(num <= INT_MAX && num >= INT_MIN &&
+           "BIO ctrl value is too big or too small");
+    BIO_set_shutdown(bio, (int)num);
     break;
   case BIO_CTRL_WPENDING:
     ret = 0;
@@ -225,8 +228,11 @@ BIO *create_bio(uvtls_ringbuffer_t *rb) {
   return bio;
 }
 
-static X509 *load_cert(const char *cert, int length) {
-  BIO *bio = BIO_new_mem_buf(cert, length);
+static X509 *load_cert(const char *cert, size_t length) {
+  if (length > INT_MAX) {
+    return NULL;
+  }
+  BIO *bio = BIO_new_mem_buf(cert, (int)length);
   if (bio == NULL) {
     return NULL;
   }
@@ -241,8 +247,11 @@ static X509 *load_cert(const char *cert, int length) {
   return x509;
 }
 
-static EVP_PKEY *load_key(const char *key, int length) {
-  BIO *bio = BIO_new_mem_buf(key, length);
+static EVP_PKEY *load_key(const char *key, size_t length) {
+  if (length > INT_MAX) {
+    return NULL;
+  }
+  BIO *bio = BIO_new_mem_buf(key, (int)length);
   if (bio == NULL) {
     return NULL;
   }
@@ -418,9 +427,20 @@ static void on_handshake_accept_read(uv_stream_t *stream, ssize_t nread,
   }
 }
 
+static void do_read(uvtls_t *tls) {
+  char data[UVTLS_HANDSHAKE_MAX_BUFFER_SIZE];
+  ssize_t nread;
+
+  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
+  uv_buf_t buf = uv_buf_init(data, UVTLS_HANDSHAKE_MAX_BUFFER_SIZE);
+  while ((nread = SSL_read(session->ssl, data,
+                           UVTLS_HANDSHAKE_MAX_BUFFER_SIZE)) > 0) {
+    tls->read_cb(tls, nread, &buf);
+  }
+}
+
 static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   uvtls_t *tls = (uvtls_t *)stream->data;
-  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
 
   if (nread < 0) {
     tls->read_cb(tls, nread, NULL);
@@ -429,13 +449,7 @@ static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
 
   uvtls_ringbuffer_tail_block_commit(&tls->incoming, (int)nread);
 
-  char data[UVTLS_HANDSHAKE_MAX_BUFFER_SIZE];
-  ssize_t num_bytes;
-  uv_buf_t temp = uv_buf_init(data, UVTLS_HANDSHAKE_MAX_BUFFER_SIZE);
-  while ((num_bytes = SSL_read(session->ssl, data,
-                               UVTLS_HANDSHAKE_MAX_BUFFER_SIZE)) > 0) {
-    tls->read_cb(tls, num_bytes, &temp);
-  }
+  do_read(tls);
 }
 
 static void on_write(uv_write_t *req, int status) {
@@ -604,6 +618,9 @@ int uvtls_accept(uvtls_t *server, uvtls_t *client, uvtls_accept_cb cb) {
 int uvtls_read_start(uvtls_t *tls, uvtls_read_cb read_cb) {
   tls->stream->data = tls;
   tls->read_cb = read_cb;
+
+  do_read(tls); /* Process existing ring buffer data  */
+
   return uv_read_start(tls->stream, on_alloc, on_read);
 }
 
