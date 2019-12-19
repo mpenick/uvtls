@@ -8,7 +8,7 @@
  * TODO:
  * - Error handling
  * - Verify flags
- * - Client-side certificates
+ * - Client-side certificates (done-ish)
  * - Trusted certificates
  */
 
@@ -22,6 +22,30 @@ typedef void (*uvtls_connection_cb)(uvtls_t *server, int status);
 typedef void (*uvtls_accept_cb)(uvtls_t *client, int status);
 typedef void (*uvtls_connect_cb)(uvtls_connect_t *req, int status);
 typedef void (*uvtls_write_cb)(uvtls_write_t *req, int status);
+
+#define UVTLS__ERR(x) (UV_ERRNO_MAX - (x))
+
+#define UVTLS__UNKNOWN UVTLS__ERR(100) /* FIXME */
+#define UVTLS__EINVAL UVTLS__ERR(5)
+#define UVTLS__EHANDSHAKE UVTLS__ERR(2)
+#define UVTLS__ENOPEERCERT UVTLS__ERR(3)
+#define UVTLS__EBADPEERCERT UVTLS__ERR(2)
+#define UVTLS__EBADPEERIDNT UVTLS__ERR(1)
+
+#define UVTLS_ERRNO_MAP(XX)                                                    \
+  XX(UNKNOWN, "unknown tls error")                                             \
+  XX(EINVAL, "invalid argument")                                               \
+  XX(EHANDSHAKE, "handshake error")                                            \
+  XX(ENOPEERCERT, "no peer certificate")                                       \
+  XX(EBADPEERCERT, "invalid peer certificate")                                 \
+  XX(EBADPEERIDNT, "invalid peer identity")
+
+typedef enum {
+#define XX(code, _) UVTLS_##code = UVTLS__##code,
+  UVTLS_ERRNO_MAP(XX)
+#undef XX
+      UVTLS_ERRNO_MAX = UVTLS__UNKNOWN - 1
+} uvtls_errno_t;
 
 struct uvtls_context_s {
   void *data;
@@ -59,8 +83,7 @@ struct uvtls_write_s {
 
 typedef enum {
   UVTLS_CONTEXT_LIB_INIT = 0x01,
-  UVTLS_CONTEXT_SERVER_MODE = 0x02,
-  UVTLS_CONTEXT_DEBUG = 0x04,
+  UVTLS_CONTEXT_DEBUG = 0x02,
 } uvtls_context_flags_t;
 
 typedef enum {
