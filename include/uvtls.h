@@ -17,6 +17,8 @@ typedef struct uvtls_s uvtls_t;
 typedef struct uvtls_write_s uvtls_write_t;
 typedef struct uvtls_connect_s uvtls_connect_t;
 
+typedef void (*uvtls_alloc_cb)(uvtls_t *tls, size_t suggested_size,
+                               uv_buf_t *buf);
 typedef void (*uvtls_read_cb)(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf);
 typedef void (*uvtls_connection_cb)(uvtls_t *server, int status);
 typedef void (*uvtls_accept_cb)(uvtls_t *client, int status);
@@ -61,6 +63,7 @@ struct uvtls_s {
   char hostname[256];
   uvtls_ring_buf_t incoming;
   uvtls_ring_buf_t outgoing;
+  uvtls_alloc_cb alloc_cb;
   uvtls_read_cb read_cb;
   uvtls_connect_t *connect_req;
   uvtls_connection_cb connection_cb;
@@ -115,7 +118,8 @@ int uvtls_connect(uvtls_connect_t *req, uvtls_t *tls, uvtls_connect_cb cb);
 int uvtls_listen(uvtls_t *tls, int backlog, uvtls_connection_cb cb);
 int uvtls_accept(uvtls_t *server, uvtls_t *client, uvtls_accept_cb cb);
 
-int uvtls_read_start(uvtls_t *tls, uvtls_read_cb read_cb);
+int uvtls_read_start(uvtls_t *tls, uvtls_alloc_cb alloc_cb,
+                     uvtls_read_cb read_cb);
 int uvtls_read_stop(uvtls_t *tls);
 
 int uvtls_write(uvtls_write_t *req, uvtls_t *tls, const uv_buf_t bufs[],

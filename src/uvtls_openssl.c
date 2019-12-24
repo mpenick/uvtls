@@ -26,7 +26,7 @@
 #endif
 #endif
 
-#define UVTLS_STACK_READ_BUF_SIZE 4096
+#define UVTLS_SUGGESTED_READ_SIZE UVTLS_RING_BUF_BLOCK_SIZE
 #define UVTLS_STACK_BUFS_COUNT 16
 
 #define PRINT_INFO(ssl, w, flag, msg)                                          \
@@ -462,13 +462,16 @@ static void on_handshake_accept_read(uv_stream_t *stream, ssize_t nread,
 }
 
 static void do_read(uvtls_t *tls) {
-  char data[UVTLS_STACK_READ_BUF_SIZE];
-  ssize_t nread;
-
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
-  uv_buf_t buf = uv_buf_init(data, UVTLS_STACK_READ_BUF_SIZE);
-  while ((nread = SSL_read(session->ssl, data, UVTLS_STACK_READ_BUF_SIZE)) >
-         0) {
+  while (uvtls_ring_buf_size(&tls->incoming) > 0 && tls->read_cb) {
+    uv_buf_t buf = uv_buf_init(NULL, 0);
+    tls->alloc_cb(tls, UVTLS_SUGGESTED_READ_SIZE, &buf);
+    if (buf.base == NULL || buf.len == 0) {
+      tls->read_cb(tls, UV_ENOBUFS, &buf);
+      return;
+    }
+    assert(buf.len <= INT_MAX && "Allocate read buf is too big");
+    ssize_t nread = SSL_read(session->ssl, buf.base, (int)buf.len);
     tls->read_cb(tls, nread, &buf);
   }
 }
@@ -567,6 +570,7 @@ int uvtls_init(uvtls_t *tls, uvtls_context_t *context, uv_stream_t *stream) {
   tls->stream = stream;
   tls->context = context;
   tls->hostname[0] = '\0';
+  tls->alloc_cb = NULL;
   tls->read_cb = NULL;
   tls->connect_req = NULL;
   tls->connection_cb = NULL;
@@ -668,8 +672,10 @@ int uvtls_accept(uvtls_t *server, uvtls_t *client, uvtls_accept_cb cb) {
   return uv_read_start(client->stream, on_alloc, on_handshake_accept_read);
 }
 
-int uvtls_read_start(uvtls_t *tls, uvtls_read_cb read_cb) {
+int uvtls_read_start(uvtls_t *tls, uvtls_alloc_cb alloc_cb,
+                     uvtls_read_cb read_cb) {
   tls->stream->data = tls;
+  tls->alloc_cb = alloc_cb;
   tls->read_cb = read_cb;
 
   do_read(tls); /* Process existing ring buffer data  */
