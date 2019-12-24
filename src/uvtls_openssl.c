@@ -26,7 +26,7 @@
 #endif
 #endif
 
-#define UVTLS_HANDSHAKE_MAX_BUFFER_SIZE UVTLS_RING_BUFFER_BLOCK_SIZE
+#define UVTLS_HANDSHAKE_MAX_BUFFER_SIZE UVTLS_RING_BUF_BLOCK_SIZE
 
 #define PRINT_INFO(ssl, w, flag, msg)                                          \
   do {                                                                         \
@@ -74,68 +74,68 @@ static void lib_init() {
   atexit(lib_cleanup);
 }
 
-static int ringbuffer_bio_create(BIO *bio);
-static int ringbuffer_bio_destroy(BIO *bio);
-static int ringbuffer_bio_read(BIO *bio, char *out, int len);
-static int ringbuffer_bio_write(BIO *bio, const char *data, int len);
-static int ringbuffer_bio_puts(BIO *bio, const char *str);
-static int ringbuffer_bio_gets(BIO *bio, char *out, int size);
-static long ringbuffer_bio_ctrl(BIO *bio, int cmd, long num, void *ptr);
+static int ring_buf_bio_create(BIO *bio);
+static int ring_buf_bio_destroy(BIO *bio);
+static int ring_buf_bio_read(BIO *bio, char *out, int len);
+static int ring_buf_bio_write(BIO *bio, const char *data, int len);
+static int ring_buf_bio_puts(BIO *bio, const char *str);
+static int ring_buf_bio_gets(BIO *bio, char *out, int size);
+static long ring_buf_bio_ctrl(BIO *bio, int cmd, long num, void *ptr);
 
 #if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
-const BIO_METHOD method__ = {BIO_TYPE_MEM,           "Ring Buffer",
-                             ringbuffer_bio_write,   ringbuffer_bio_read,
-                             ringbuffer_bio_puts,    ringbuffer_bio_gets,
-                             ringbuffer_bio_ctrl,    ringbuffer_bio_create,
-                             ringbuffer_bio_destroy, NULL};
+const BIO_METHOD method__ = {BIO_TYPE_MEM,         "Ring Buffer",
+                             ring_buf_bio_write,   ring_buf_bio_read,
+                             ring_buf_bio_puts,    ring_buf_bio_gets,
+                             ring_buf_bio_ctrl,    ring_buf_bio_create,
+                             ring_buf_bio_destroy, NULL};
 #else
 static BIO_METHOD *method__ = NULL;
-void ringbuffer_bio_init() {
-  method__ = BIO_meth_new(BIO_TYPE_MEM, "Ring Buffer");
+void ring_buf_bio_init() {
+  method__ = BIO_meth_new(BIO_TYPE_MEM, "ring buf");
   if (method__) {
-    BIO_meth_set_write(method__, ringbuffer_bio_write);
-    BIO_meth_set_read(method__, ringbuffer_bio_read);
-    BIO_meth_set_puts(method__, ringbuffer_bio_puts);
-    BIO_meth_set_gets(method__, ringbuffer_bio_gets);
-    BIO_meth_set_ctrl(method__, ringbuffer_bio_ctrl);
-    BIO_meth_set_create(method__, ringbuffer_bio_create);
-    BIO_meth_set_destroy(method__, ringbuffer_bio_destroy);
+    BIO_meth_set_write(method__, ring_buf_bio_write);
+    BIO_meth_set_read(method__, ring_buf_bio_read);
+    BIO_meth_set_puts(method__, ring_buf_bio_puts);
+    BIO_meth_set_gets(method__, ring_buf_bio_gets);
+    BIO_meth_set_ctrl(method__, ring_buf_bio_ctrl);
+    BIO_meth_set_create(method__, ring_buf_bio_create);
+    BIO_meth_set_destroy(method__, ring_buf_bio_destroy);
   }
 }
 #endif
 
-static uv_once_t ringbuffer_init_guard__ = UV_ONCE_INIT;
+static uv_once_t ring_buf_init_guard__ = UV_ONCE_INIT;
 
-static void ringbuffer_bio_init_once() {
-  uv_once(&ringbuffer_init_guard__, ringbuffer_bio_init);
+static void ring_buf_bio_init_once() {
+  uv_once(&ring_buf_init_guard__, ring_buf_bio_init);
 }
 
-uvtls_ringbuffer_t *ringbuffer_from_bio(BIO *bio) {
+uvtls_ring_buf_t *ring_buf_from_bio(BIO *bio) {
   void *data = BIO_get_data(bio);
   assert(data && "BIO data field should not be NULL");
-  return (uvtls_ringbuffer_t *)data;
+  return (uvtls_ring_buf_t *)data;
 }
 
-int ringbuffer_bio_create(BIO *bio) {
+int ring_buf_bio_create(BIO *bio) {
   BIO_set_shutdown(bio, 1);
   BIO_set_init(bio, 1);
   return 1;
 }
 
-int ringbuffer_bio_destroy(BIO *bio) {
+int ring_buf_bio_destroy(BIO *bio) {
   if (bio == NULL) {
     return 0;
   }
-  uvtls_ringbuffer_destroy(ringbuffer_from_bio(bio));
+  uvtls_ring_buf_destroy(ring_buf_from_bio(bio));
   return 1;
 }
 
-int ringbuffer_bio_read(BIO *bio, char *out, int len) {
+int ring_buf_bio_read(BIO *bio, char *out, int len) {
   int bytes;
   BIO_clear_retry_flags(bio);
 
-  uvtls_ringbuffer_t *rb = ringbuffer_from_bio(bio);
-  bytes = uvtls_ringbuffer_read(rb, out, len);
+  uvtls_ring_buf_t *rb = ring_buf_from_bio(bio);
+  bytes = uvtls_ring_buf_read(rb, out, len);
 
   if (bytes == 0) {
     assert(rb->ret <= INT_MAX && "Value is too big for ring buffer BIO read");
@@ -148,43 +148,43 @@ int ringbuffer_bio_read(BIO *bio, char *out, int len) {
   return bytes;
 }
 
-int ringbuffer_bio_write(BIO *bio, const char *data, int len) {
+int ring_buf_bio_write(BIO *bio, const char *data, int len) {
   BIO_clear_retry_flags(bio);
-  uvtls_ringbuffer_write(ringbuffer_from_bio(bio), data, len);
+  uvtls_ring_buf_write(ring_buf_from_bio(bio), data, len);
   return len;
 }
 
-int ringbuffer_bio_puts(BIO *bio, const char *str) { abort(); }
+int ring_buf_bio_puts(BIO *bio, const char *str) { abort(); }
 
-int ringbuffer_bio_gets(BIO *bio, char *out, int size) { abort(); }
+int ring_buf_bio_gets(BIO *bio, char *out, int size) { abort(); }
 
-long ringbuffer_bio_ctrl(BIO *bio, int cmd, long num, void *ptr) {
+long ring_buf_bio_ctrl(BIO *bio, int cmd, long num, void *ptr) {
   long ret = 1;
 
-  uvtls_ringbuffer_t *rb = ringbuffer_from_bio(bio);
+  uvtls_ring_buf_t *rb = ring_buf_from_bio(bio);
 
   switch (cmd) {
   case BIO_CTRL_RESET:
-    uvtls_ringbuffer_reset(rb);
+    uvtls_ring_buf_reset(rb);
     break;
   case BIO_CTRL_EOF:
-    ret = (uvtls_ringbuffer_size(rb) == 0);
+    ret = (uvtls_ring_buf_size(rb) == 0);
     break;
   case BIO_C_SET_BUF_MEM_EOF_RETURN:
     rb->ret = num;
     break;
   case BIO_CTRL_INFO:
-    ret = uvtls_ringbuffer_size(rb);
+    ret = uvtls_ring_buf_size(rb);
     if (ptr != NULL) {
       *(void **)ptr = NULL;
     }
     break;
   case BIO_C_SET_BUF_MEM:
-    assert(0 && "Can't use SET_BUF_MEM_PTR with RingBufferBio");
+    assert(0 && "Can't use SET_BUF_MEM with ring buf BIO");
     abort();
     break;
   case BIO_C_GET_BUF_MEM_PTR:
-    assert(0 && "Can't use GET_BUF_MEM_PTR with RingBufferBio");
+    assert(0 && "Can't use GET_BUF_MEM_PTR with ring buf BIO");
     ret = 0;
     break;
   case BIO_CTRL_GET_CLOSE:
@@ -199,7 +199,7 @@ long ringbuffer_bio_ctrl(BIO *bio, int cmd, long num, void *ptr) {
     ret = 0;
     break;
   case BIO_CTRL_PENDING:
-    ret = uvtls_ringbuffer_size(rb);
+    ret = uvtls_ring_buf_size(rb);
     break;
   case BIO_CTRL_DUP:
   case BIO_CTRL_FLUSH:
@@ -214,7 +214,7 @@ long ringbuffer_bio_ctrl(BIO *bio, int cmd, long num, void *ptr) {
   return ret;
 }
 
-BIO *create_bio(uvtls_ringbuffer_t *rb) {
+BIO *create_bio(uvtls_ring_buf_t *rb) {
 #if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
   BIO *bio = BIO_new(const_cast<BIO_METHOD *>(&method_));
 #else
@@ -272,8 +272,8 @@ struct uvtls_session_s {
 };
 
 static uvtls_session_t *uvtls_session_create(SSL_CTX *ssl_ctx,
-                                             uvtls_ringbuffer_t *incoming,
-                                             uvtls_ringbuffer_t *outgoing) {
+                                             uvtls_ring_buf_t *incoming,
+                                             uvtls_ring_buf_t *outgoing) {
   uvtls_session_t *session = (uvtls_session_t *)malloc(sizeof(uvtls_session_t));
 
   SSL_CTX_up_ref(ssl_ctx);
@@ -300,14 +300,14 @@ static void ssl_print_error() {
   }
 }
 
-int do_write(uv_write_t *req, uvtls_t *tls, const uvtls_ringbuffer_pos_t pos,
-             uvtls_ringbuffer_pos_t *commit_pos, uv_write_cb cb) {
+int do_write(uv_write_t *req, uvtls_t *tls, const uvtls_ring_buf_pos_t pos,
+             uvtls_ring_buf_pos_t *commit_pos, uv_write_cb cb) {
   /* FIXME: Handle arbitrary sizes, this only handles 4,194,624 bytes */
   uv_buf_t bufs[16];
   int bufs_count = sizeof(bufs) / sizeof(bufs[0]);
 
   *commit_pos =
-      uvtls_ringbuffer_head_blocks(&tls->outgoing, pos, bufs, &bufs_count);
+      uvtls_ring_buf_head_blocks(&tls->outgoing, pos, bufs, &bufs_count);
 
   return uv_write(req, (uv_stream_t *)tls->stream, bufs,
                   (unsigned int)bufs_count, cb);
@@ -316,7 +316,7 @@ int do_write(uv_write_t *req, uvtls_t *tls, const uvtls_ringbuffer_pos_t pos,
 static int do_handshake(uvtls_t *tls) {
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
 
-  uvtls_ringbuffer_pos_t pos = tls->outgoing.tail;
+  uvtls_ring_buf_pos_t pos = tls->outgoing.tail;
 
   int rc = SSL_do_handshake(session->ssl);
   if (rc <= 0) {
@@ -327,34 +327,12 @@ static int do_handshake(uvtls_t *tls) {
     }
   }
 
-  int size = uvtls_ringbuffer_size(&tls->outgoing);
-  printf("handshake size %d\n", size);
-
-  if (size > 0) {
+  if (uvtls_ring_buf_size(&tls->outgoing) > 0) {
     uv_write_t *req = (uv_write_t *)malloc(sizeof(uv_write_t));
     req->data = tls;
 
     return do_write(req, tls, pos, &tls->commit_pos, on_handshake_write);
   }
-
-  /* FIXME: Why reading the bio instead of ring buffer */
-
-  /*
-  char data[UVTLS_HANDSHAKE_MAX_BUFFER_SIZE];
-  int size =
-      BIO_read(session->outgoing_bio, data, UVTLS_HANDSHAKE_MAX_BUFFER_SIZE);
-  if (size > 0) {
-    uv_write_t *req = (uv_write_t *)malloc(sizeof(uv_write_t));
-    req->data = (char *)malloc((size_t)size);
-    memcpy(req->data, data, (size_t)size);
-
-    uv_buf_t bufs;
-    bufs.base = req->data;
-    bufs.len = (size_t)size;
-    return uv_write(req, (uv_stream_t *)tls->stream, &bufs, 1,
-                    on_handshake_write);
-  }
-  */
 
   return 0;
 }
@@ -397,13 +375,13 @@ error:
 static void on_alloc(uv_handle_t *handle, size_t suggested_size,
                      uv_buf_t *buf) {
   uvtls_t *tls = (uvtls_t *)handle->data;
-  buf->len = (size_t)uvtls_ringbuffer_tail_block(&tls->incoming, &buf->base,
-                                                 (int)suggested_size);
+  buf->len = (size_t)uvtls_ring_buf_tail_block(&tls->incoming, &buf->base,
+                                               (int)suggested_size);
 }
 
 static void on_handshake_write(uv_write_t *req, int status) {
   uvtls_t *tls = (uvtls_t *)req->data;
-  uvtls_ringbuffer_head_blocks_commit(&tls->outgoing, tls->commit_pos);
+  uvtls_ring_buf_head_blocks_commit(&tls->outgoing, tls->commit_pos);
   free(req);
 }
 
@@ -420,7 +398,7 @@ static void on_handshake_connect_read(uv_stream_t *stream, ssize_t nread,
     return;
   }
 
-  uvtls_ringbuffer_tail_block_commit(&tls->incoming, (int)nread);
+  uvtls_ring_buf_tail_block_commit(&tls->incoming, (int)nread);
 
   int rc = do_handshake(tls);
   if (rc != 0) {
@@ -445,7 +423,7 @@ static void on_handshake_accept_read(uv_stream_t *stream, ssize_t nread,
     return;
   }
 
-  uvtls_ringbuffer_tail_block_commit(&tls->incoming, (int)nread);
+  uvtls_ring_buf_tail_block_commit(&tls->incoming, (int)nread);
 
   int rc = do_handshake(tls);
   if (rc != 0) {
@@ -477,15 +455,15 @@ static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
     return;
   }
 
-  uvtls_ringbuffer_tail_block_commit(&tls->incoming, (int)nread);
+  uvtls_ring_buf_tail_block_commit(&tls->incoming, (int)nread);
 
   do_read(tls);
 }
 
 static void on_write(uv_write_t *req, int status) {
   uvtls_write_t *write_req = (uvtls_write_t *)req->data;
-  uvtls_ringbuffer_head_blocks_commit(&write_req->tls->outgoing,
-                                      write_req->commit_pos);
+  uvtls_ring_buf_head_blocks_commit(&write_req->tls->outgoing,
+                                    write_req->commit_pos);
   write_req->cb(write_req, status);
 }
 
@@ -493,7 +471,11 @@ int uvtls_context_init(uvtls_context_t *context, int flags) {
   if (flags & UVTLS_CONTEXT_LIB_INIT) {
     uv_once(&lib_init_guard__, lib_init);
   }
-  SSL_CTX *ssl_ctx = SSL_CTX_new(UVTLS_METHOD()); /* FIXME: OOM */
+
+  SSL_CTX *ssl_ctx = SSL_CTX_new(UVTLS_METHOD());
+  if (!ssl_ctx) {
+    return UV_ENOMEM;
+  }
 
   context->impl = ssl_ctx;
   context->verify_flags = UVTLS_VERIFY_PEER_CERT;
@@ -555,22 +537,36 @@ int uvtls_context_set_private_key(uvtls_context_t *context, const char *key,
 }
 
 int uvtls_init(uvtls_t *tls, uvtls_context_t *context, uv_stream_t *stream) {
-  ringbuffer_bio_init_once();
+  ring_buf_bio_init_once();
   tls->stream = stream;
   tls->context = context;
   tls->hostname[0] = '\0';
   tls->read_cb = NULL;
   tls->connect_req = NULL;
   tls->connection_cb = NULL;
-  tls->commit_pos = (uvtls_ringbuffer_pos_t){.block = NULL, .index = 0};
-  /* FIXME: OOM */
-  uvtls_ringbuffer_init(&tls->incoming);
-  uvtls_ringbuffer_init(&tls->outgoing);
+  tls->commit_pos = (uvtls_ring_buf_pos_t){.block = NULL, .index = 0};
+
+  int rc = uvtls_ring_buf_init(&tls->incoming);
+  if (rc != 0)
+    goto error;
+
+  rc = uvtls_ring_buf_init(&tls->outgoing);
+  if (rc != 0)
+    goto error;
+
   tls->impl = uvtls_session_create((SSL_CTX *)context->impl, &tls->incoming,
                                    &tls->outgoing);
-  if (!tls->impl)
-    return UV_ENOMEM;
+  if (!tls->impl) {
+    rc = UV_ENOMEM;
+    goto error;
+  }
+
   return 0;
+
+error:
+  uvtls_ring_buf_destroy(&tls->incoming);
+  uvtls_ring_buf_destroy(&tls->outgoing);
+  return rc;
 }
 
 void uvtls_close(uvtls_t *tls) {
@@ -584,7 +580,7 @@ void uvtls_close(uvtls_t *tls) {
 
 int uvtls_set_hostname(uvtls_t *tls, const char *hostname, size_t length) {
   if (length + 1 > sizeof(tls->hostname)) {
-    return UV_E2BIG; /* FIXME: error code */
+    return UV_EINVAL;
   }
   tls->hostname[length] = '\0';
   memcpy(tls->hostname, hostname, length);
@@ -662,7 +658,7 @@ int uvtls_write(uvtls_write_t *req, uvtls_t *tls, const uv_buf_t bufs[],
   req->tls = tls;
   tls->stream->data = tls;
 
-  const uvtls_ringbuffer_pos_t pos = tls->outgoing.tail;
+  const uvtls_ring_buf_pos_t pos = tls->outgoing.tail;
 
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
   for (unsigned int i = 0; i < nbufs; ++i) {
