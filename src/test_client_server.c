@@ -30,9 +30,15 @@ void on_client_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
   }
 }
 
+void on_client_alloc(uvtls_t *tls, size_t suggested_size, uv_buf_t *buf) {
+  static char data[64 * 1024];
+  buf->base = data;
+  buf->len = sizeof(data);
+}
+
 void on_accept(uvtls_t *client, int status) {
   printf("accept\n");
-  uvtls_read_start(client, on_client_read);
+  uvtls_read_start(client, on_client_alloc, on_client_read);
 }
 
 void on_connection(uvtls_t *server, int status) {
@@ -69,6 +75,12 @@ void on_tcp_connect(uv_connect_t *req, int status) {
   uvtls_connect(connect_req, tls, on_connect);
 }
 
+void on_alloc(uvtls_t *tls, size_t suggested_size, uv_buf_t *buf) {
+  static char data[64 * 1024];
+  buf->base = data;
+  buf->len = sizeof(data);
+}
+
 void on_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
   if (nread > 0) {
     printf("client: %.*s\n", (int)nread, buf->base);
@@ -78,7 +90,7 @@ void on_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
 }
 
 void on_write(uvtls_write_t *req, int status) {
-  uvtls_read_start(req->tls, on_read);
+  uvtls_read_start(req->tls, on_alloc, on_read);
   free(req);
 }
 
