@@ -5,13 +5,16 @@
 
 void on_client_close(uv_handle_t *handle) {
   printf("server client close\n");
+  uvtls_t *tls = (uvtls_t *)handle->data;
+  uvtls_close(tls);
+  free(tls);
   free(handle);
 }
 
 void on_client_write(uvtls_write_t *req, int status) {
-  uv_close((uv_handle_t *)req->tls->stream, on_client_close);
-  uvtls_close(req->tls);
-  free(req->tls);
+  if (!uv_is_closing((uv_handle_t *)req->tls->stream)) {
+    uv_close((uv_handle_t *)req->tls->stream, on_client_close);
+  }
   free(req);
 }
 

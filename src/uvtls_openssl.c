@@ -27,6 +27,7 @@
 #endif
 
 #define UVTLS_HANDSHAKE_MAX_BUFFER_SIZE UVTLS_RING_BUF_BLOCK_SIZE
+#define UVTLS_STACK_BUFS_COUNT 16
 
 #define PRINT_INFO(ssl, w, flag, msg)                                          \
   do {                                                                         \
@@ -301,23 +302,43 @@ static void ssl_print_error() {
   }
 }
 
-int do_write(uv_write_t *req, uvtls_t *tls, const uvtls_ring_buf_pos_t pos,
-             uvtls_ring_buf_pos_t *commit_pos, uv_write_cb cb) {
-  /* FIXME: Handle arbitrary sizes, this only handles 4,194,624 bytes */
-  uv_buf_t bufs[16];
-  int bufs_count = sizeof(bufs) / sizeof(bufs[0]);
+static int do_write(uv_write_t *req, uvtls_t *tls,
+                    uvtls_ring_buf_pos_t start_pos, int start_size,
+                    uvtls_ring_buf_pos_t *commit_pos, uv_write_cb cb) {
+  uv_buf_t stack_bufs[UVTLS_STACK_BUFS_COUNT];
+
+  int bufs_count;
+  uv_buf_t *bufs;
+
+  int size = uvtls_ring_buf_size(&tls->outgoing) - start_size;
+  if (size > UVTLS_STACK_BUFS_COUNT * UVTLS_RING_BUF_BLOCK_SIZE) {
+    bufs_count = size / UVTLS_RING_BUF_BLOCK_SIZE;
+    bufs = (uv_buf_t *)malloc(sizeof(uv_buf_t) * (unsigned int)bufs_count);
+    if (!bufs) {
+      return UV_ENOMEM;
+    }
+  } else {
+    bufs_count = UVTLS_STACK_BUFS_COUNT;
+    bufs = stack_bufs;
+  }
 
   *commit_pos =
-      uvtls_ring_buf_head_blocks(&tls->outgoing, pos, bufs, &bufs_count);
+      uvtls_ring_buf_head_blocks(&tls->outgoing, start_pos, bufs, &bufs_count);
+  int rc = uv_write(req, (uv_stream_t *)tls->stream, bufs,
+                    (unsigned int)bufs_count, cb);
 
-  return uv_write(req, (uv_stream_t *)tls->stream, bufs,
-                  (unsigned int)bufs_count, cb);
+  if (bufs != stack_bufs) {
+    free(bufs);
+  }
+
+  return rc;
 }
 
 static int do_handshake(uvtls_t *tls) {
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
 
-  uvtls_ring_buf_pos_t pos = tls->outgoing.tail;
+  uvtls_ring_buf_pos_t start_pos = tls->outgoing.tail;
+  int start_size = uvtls_ring_buf_size(&tls->outgoing);
 
   int rc = SSL_do_handshake(session->ssl);
   if (rc <= 0) {
@@ -328,14 +349,15 @@ static int do_handshake(uvtls_t *tls) {
     }
   }
 
-  if (uvtls_ring_buf_size(&tls->outgoing) > 0) {
+  if (uvtls_ring_buf_size(&tls->outgoing) - start_size > 0) {
     uv_write_t *req = (uv_write_t *)malloc(sizeof(uv_write_t));
     if (!req) {
       return UV_ENOMEM;
     }
     req->data = tls;
 
-    return do_write(req, tls, pos, &tls->commit_pos, on_handshake_write);
+    return do_write(req, tls, start_pos, start_size, &tls->commit_pos,
+                    on_handshake_write);
   }
 
   return 0;
@@ -664,12 +686,14 @@ int uvtls_write(uvtls_write_t *req, uvtls_t *tls, const uv_buf_t bufs[],
   req->tls = tls;
   tls->stream->data = tls;
 
-  const uvtls_ring_buf_pos_t pos = tls->outgoing.tail;
+  const uvtls_ring_buf_pos_t start_pos = tls->outgoing.tail;
+  int start_size = uvtls_ring_buf_size(&tls->outgoing);
 
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
   for (unsigned int i = 0; i < nbufs; ++i) {
     SSL_write(session->ssl, bufs[i].base, (int)bufs[i].len);
   }
 
-  return do_write(&req->req, tls, pos, &req->commit_pos, on_write);
+  return do_write(&req->req, tls, start_pos, start_size, &req->commit_pos,
+                  on_write);
 }
