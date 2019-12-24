@@ -274,6 +274,7 @@ struct uvtls_session_s {
 static uvtls_session_t *uvtls_session_create(SSL_CTX *ssl_ctx,
                                              uvtls_ring_buf_t *incoming,
                                              uvtls_ring_buf_t *outgoing) {
+  /* FIXME: OOM */
   uvtls_session_t *session = (uvtls_session_t *)malloc(sizeof(uvtls_session_t));
 
   SSL_CTX_up_ref(ssl_ctx);
@@ -329,6 +330,9 @@ static int do_handshake(uvtls_t *tls) {
 
   if (uvtls_ring_buf_size(&tls->outgoing) > 0) {
     uv_write_t *req = (uv_write_t *)malloc(sizeof(uv_write_t));
+    if (!req) {
+      return UV_ENOMEM;
+    }
     req->data = tls;
 
     return do_write(req, tls, pos, &tls->commit_pos, on_handshake_write);
@@ -547,12 +551,14 @@ int uvtls_init(uvtls_t *tls, uvtls_context_t *context, uv_stream_t *stream) {
   tls->commit_pos = (uvtls_ring_buf_pos_t){.block = NULL, .index = 0};
 
   int rc = uvtls_ring_buf_init(&tls->incoming);
-  if (rc != 0)
+  if (rc != 0) {
     goto error;
+  }
 
   rc = uvtls_ring_buf_init(&tls->outgoing);
-  if (rc != 0)
+  if (rc != 0) {
     goto error;
+  }
 
   tls->impl = uvtls_session_create((SSL_CTX *)context->impl, &tls->incoming,
                                    &tls->outgoing);
