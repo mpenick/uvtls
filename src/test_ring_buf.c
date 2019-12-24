@@ -277,7 +277,7 @@ void fill_random(char *buf, int length) {
 #define MAX_LENGTH (1024 * 1024)
 //#define MAX_LENGTH (64 * 1024)
 
-void test_write(uvtls_ringbuffer_t *rb, const char *buf, int length) {
+void test_write(uvtls_ring_buf_t *rb, const char *buf, int length) {
   const char *pos = buf;
   int remaining = length;
 
@@ -286,13 +286,13 @@ void test_write(uvtls_ringbuffer_t *rb, const char *buf, int length) {
     if (to_copy > remaining) {
       to_copy = remaining;
     }
-    uvtls_ringbuffer_write(rb, pos, to_copy);
+    uvtls_ring_buf_write(rb, pos, to_copy);
     remaining -= to_copy;
     pos += to_copy;
   }
 }
 
-void test_read(uvtls_ringbuffer_t *rb, int length, unsigned char md5[]) {
+void test_read(uvtls_ring_buf_t *rb, int length, unsigned char md5[]) {
   MD5_CTX ctx;
   int remaining = length;
   char *temp = (char *)malloc(length + 1);
@@ -305,7 +305,7 @@ void test_read(uvtls_ringbuffer_t *rb, int length, unsigned char md5[]) {
   //  if (to_copy > remaining) {
   //    to_copy = remaining;
   //  }
-  //  int num_bytes = uvtls_ringbuffer_read(rb, temp, to_copy);
+  //  int num_bytes = uvtls_ring_buf_read(rb, temp, to_copy);
   //  temp[num_bytes] = '\0';
   //  // printf("%s", temp);
   //  MD5_Update(&ctx, temp, num_bytes);
@@ -315,7 +315,7 @@ void test_read(uvtls_ringbuffer_t *rb, int length, unsigned char md5[]) {
 
   // printf("A: ");
   int num_bytes;
-  while ((num_bytes = uvtls_ringbuffer_read(rb, temp, rand_range(1, length))) >
+  while ((num_bytes = uvtls_ring_buf_read(rb, temp, rand_range(1, length))) >
          0) {
     temp[num_bytes] = '\0';
     // printf("%s", temp);
@@ -328,7 +328,7 @@ void test_read(uvtls_ringbuffer_t *rb, int length, unsigned char md5[]) {
   free(temp);
 }
 
-void test_write_read(uvtls_ringbuffer_t *rb, const char *buf) {
+void test_write_read(uvtls_ring_buf_t *rb, const char *buf) {
   for (int i = 1; i <= 100000; ++i) {
     int length = rand_range(1, MAX_LENGTH);
 
@@ -352,13 +352,13 @@ void test_write_read(uvtls_ringbuffer_t *rb, const char *buf) {
   }
 }
 
-void test_tail_commit(uvtls_ringbuffer_t *rb, const char *buf, int length) {
+void test_tail_commit(uvtls_ring_buf_t *rb, const char *buf, int length) {
   const char *pos = buf;
   int remaining = length;
 
   while (remaining > 0) {
     char *temp;
-    int available = uvtls_ringbuffer_tail_block(rb, &temp, MAX_LENGTH);
+    int available = uvtls_ring_buf_tail_block(rb, &temp, MAX_LENGTH);
 
     int to_copy = rand_range(1, remaining);
     if (to_copy > remaining) {
@@ -370,14 +370,14 @@ void test_tail_commit(uvtls_ringbuffer_t *rb, const char *buf, int length) {
 
     memcpy(temp, pos, (unsigned)to_copy);
 
-    uvtls_ringbuffer_tail_block_commit(rb, to_copy);
+    uvtls_ring_buf_tail_block_commit(rb, to_copy);
 
     remaining -= to_copy;
     pos += to_copy;
   }
 }
 
-void test_head_commit(uvtls_ringbuffer_t *rb, int length, unsigned char md5[]) {
+void test_head_commit(uvtls_ring_buf_t *rb, int length, unsigned char md5[]) {
   MD5_CTX ctx;
   int remaining = length;
   char *temp = (char *)malloc(length + 1);
@@ -387,8 +387,8 @@ void test_head_commit(uvtls_ringbuffer_t *rb, int length, unsigned char md5[]) {
   while (remaining > 0) {
     uv_buf_t bufs[3];
     int bufs_count = 3;
-    uvtls_ringbuffer_pos_t pos =
-        uvtls_ringbuffer_head_blocks(rb, rb->head, bufs, &bufs_count);
+    uvtls_ring_buf_pos_t pos =
+        uvtls_ring_buf_head_blocks(rb, rb->head, bufs, &bufs_count);
 
     /*
     int available = 0;
@@ -422,7 +422,7 @@ void test_head_commit(uvtls_ringbuffer_t *rb, int length, unsigned char md5[]) {
       MD5_Update(&ctx, bufs[i].base, bufs[i].len);
     }
 
-    uvtls_ringbuffer_head_blocks_commit(rb, pos);
+    uvtls_ring_buf_head_blocks_commit(rb, pos);
 
     remaining -= to_copy;
   }
@@ -432,7 +432,7 @@ void test_head_commit(uvtls_ringbuffer_t *rb, int length, unsigned char md5[]) {
   free(temp);
 }
 
-void test_tail_head_commit(uvtls_ringbuffer_t *rb, const char *buf) {
+void test_tail_head_commit(uvtls_ring_buf_t *rb, const char *buf) {
   for (int i = 1; i <= 10000; ++i) {
     int length = rand_range(1, MAX_LENGTH);
 
@@ -456,11 +456,11 @@ void test_tail_head_commit(uvtls_ringbuffer_t *rb, const char *buf) {
   }
 }
 
-void test_ringbuffer() {
+void test_ring_buf() {
   srand(0x12345679);
 
-  uvtls_ringbuffer_t rb;
-  uvtls_ringbuffer_init(&rb);
+  uvtls_ring_buf_t rb;
+  uvtls_ring_buf_init(&rb);
 
   char *buf = (char *)malloc(MAX_LENGTH + 1);
   fill_random(buf, MAX_LENGTH);
@@ -469,10 +469,10 @@ void test_ringbuffer() {
   test_tail_head_commit(&rb, buf);
 
   free(buf);
-  uvtls_ringbuffer_destroy(&rb);
+  uvtls_ring_buf_destroy(&rb);
 }
 
 int main() {
-  test_ringbuffer();
+  test_ring_buf();
   return 0;
 }

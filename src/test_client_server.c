@@ -216,6 +216,6 @@ void test_client() {
 
 int main() {
   test_client();
-  // test_client_server();
+  test_client_server();
   return 0;
 }

@@ -4,7 +4,7 @@ project(uvtls VERSION 0.1 DESCRIPTION "TLS for libuv")
 
 ####
 
-add_library(uvtls SHARED src/uvtls_openssl.c src/ringbuffer.c)
+add_library(uvtls SHARED src/uvtls_openssl.c src/ring_buf.c)
 
 set_target_properties(uvtls PROPERTIES VERSION ${PROJECT_VERSION})
 set_target_properties(uvtls PROPERTIES SOVERSION 0)
@@ -26,7 +26,7 @@ target_link_libraries(test_client_server uvtls)
 
 ####
 
-add_executable(test_ring_buf src/test_ring_buf.c src/ringbuffer.c)
+add_executable(test_ring_buf src/test_ring_buf.c src/ring_buf.c)
 
 target_include_directories(test_ring_buf PRIVATE include)
 target_include_directories(test_ring_buf PRIVATE src)

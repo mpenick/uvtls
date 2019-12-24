@@ -2,7 +2,7 @@
 #define UVTLS_H
 
 #include <uv.h>
-#include <uvtls/ringbuffer.h>
+#include <uvtls/ring_buf.h>
 
 /*
  * TODO:
@@ -59,13 +59,13 @@ struct uvtls_s {
   void *impl;
   uvtls_context_t *context;
   char hostname[256];
-  uvtls_ringbuffer_t incoming;
-  uvtls_ringbuffer_t outgoing;
+  uvtls_ring_buf_t incoming;
+  uvtls_ring_buf_t outgoing;
   uvtls_read_cb read_cb;
   uvtls_connect_t *connect_req;
   uvtls_connection_cb connection_cb;
   uvtls_accept_cb accept_cb;
-  uvtls_ringbuffer_pos_t commit_pos;
+  uvtls_ring_buf_pos_t commit_pos;
 };
 
 struct uvtls_connect_s {
@@ -79,7 +79,7 @@ struct uvtls_write_s {
   void *data;
   uvtls_t *tls;
   uvtls_write_cb cb;
-  uvtls_ringbuffer_pos_t commit_pos;
+  uvtls_ring_buf_pos_t commit_pos;
 };
 
 typedef enum {
