@@ -26,7 +26,7 @@
 #endif
 #endif
 
-#define UVTLS_HANDSHAKE_MAX_BUFFER_SIZE UVTLS_RING_BUF_BLOCK_SIZE
+#define UVTLS_STACK_READ_BUF_SIZE 4096
 #define UVTLS_STACK_BUFS_COUNT 16
 
 #define PRINT_INFO(ssl, w, flag, msg)                                          \
@@ -462,13 +462,13 @@ static void on_handshake_accept_read(uv_stream_t *stream, ssize_t nread,
 }
 
 static void do_read(uvtls_t *tls) {
-  char data[UVTLS_HANDSHAKE_MAX_BUFFER_SIZE];
+  char data[UVTLS_STACK_READ_BUF_SIZE];
   ssize_t nread;
 
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
-  uv_buf_t buf = uv_buf_init(data, UVTLS_HANDSHAKE_MAX_BUFFER_SIZE);
-  while ((nread = SSL_read(session->ssl, data,
-                           UVTLS_HANDSHAKE_MAX_BUFFER_SIZE)) > 0) {
+  uv_buf_t buf = uv_buf_init(data, UVTLS_STACK_READ_BUF_SIZE);
+  while ((nread = SSL_read(session->ssl, data, UVTLS_STACK_READ_BUF_SIZE)) >
+         0) {
     tls->read_cb(tls, nread, &buf);
   }
 }
