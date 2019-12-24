@@ -386,7 +386,9 @@ void test_head_commit(uvtls_ringbuffer_t *rb, int length, unsigned char md5[]) {
 
   while (remaining > 0) {
     uv_buf_t bufs[3];
-    int buf_count = uvtls_ringbuffer_head_blocks(rb, bufs, 3);
+    int bufs_count = 3;
+    uvtls_ringbuffer_pos_t pos =
+        uvtls_ringbuffer_head_blocks(rb, rb->head, bufs, &bufs_count);
 
     /*
     int available = 0;
@@ -415,12 +417,12 @@ void test_head_commit(uvtls_ringbuffer_t *rb, int length, unsigned char md5[]) {
     */
 
     int to_copy = 0;
-    for (int i = 0; i < buf_count; ++i) {
+    for (int i = 0; i < bufs_count; ++i) {
       to_copy += bufs[i].len;
       MD5_Update(&ctx, bufs[i].base, bufs[i].len);
     }
 
-    uvtls_ringbuffer_head_blocks_commit(rb, to_copy);
+    uvtls_ringbuffer_head_blocks_commit(rb, pos);
 
     remaining -= to_copy;
   }
