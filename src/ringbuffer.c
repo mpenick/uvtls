@@ -5,6 +5,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+static uvtls_ringbuffer_pos_t pos_init(uvtls_ringbuffer_block_t *block,
+                                       int index) {
+  uvtls_ringbuffer_pos_t pos;
+  pos.block = block;
+  pos.index = index;
+  return pos;
+}
+
 static void free_blocks(uvtls_ringbuffer_block_t *blocks) {
   uvtls_ringbuffer_block_t *current = blocks;
   while (current) {
@@ -46,7 +54,7 @@ static void pop_head_block(uvtls_ringbuffer_t *rb) {
 void uvtls_ringbuffer_init(uvtls_ringbuffer_t *rb) {
   rb->empty_blocks = NULL;
   rb->head = rb->tail =
-      (uvtls_ringbuffer_position_t){.index = 0, .block = create_block()};
+      (uvtls_ringbuffer_pos_t){.index = 0, .block = create_block()};
   rb->size = 0;
   rb->ret = -1;
 }
@@ -168,74 +176,46 @@ int uvtls_ringbuffer_read(uvtls_ringbuffer_t *rb, char *data, int len) {
   return initial_size - rb->size;
 }
 
-int uvtls_ringbuffer_head_blocks(const uvtls_ringbuffer_t *rb, uv_buf_t *bufs,
-                                 int bufs_count) {
-  assert(rb->head.block && "Head block should never be NULL");
-  uvtls_ringbuffer_block_t *current = rb->head.block;
-  int current_index = rb->head.index;
-  int i = 0;
+uvtls_ringbuffer_pos_t
+uvtls_ringbuffer_head_blocks(const uvtls_ringbuffer_t *rb,
+                             uvtls_ringbuffer_pos_t pos, uv_buf_t *bufs,
+                             int *bufs_count) {
+  assert(pos.block && "Position block should never be NULL");
 
-  while (i < bufs_count) {
-    uv_buf_t *buf = bufs + i;
-    if (current == rb->tail.block) {
-      assert(rb->tail.index >= current_index &&
+  uvtls_ringbuffer_pos_t current = pos;
+  int count = 0;
+
+  while (count < *bufs_count) {
+    uv_buf_t *buf = bufs + count;
+    if (current.block == rb->tail.block) {
+      assert(rb->tail.index >= current.index &&
              "Tail index should always be greater than or equal to head index");
-      int len = rb->tail.index - current_index;
+      int len = rb->tail.index - current.index;
       if (len != 0) {
         buf->len = (size_t)len;
-        buf->base = current->data + current_index;
-        i++;
+        buf->base = current.block->data + current.index;
+        count++;
       }
-      return i;
+      *bufs_count = count;
+      return rb->tail;
     } else {
-      int len = UVTLS_RING_BUFFER_BLOCK_SIZE - current_index;
+      int len = UVTLS_RING_BUFFER_BLOCK_SIZE - current.index;
       if (len != 0) {
         buf->len = (size_t)len;
-        buf->base = current->data + current_index;
-        i++;
+        buf->base = current.block->data + current.index;
+        count++;
       }
     }
-    current = current->next;
-    current_index = 0;
+    current = pos_init(current.block->next, 0);
   }
-  return bufs_count;
+  *bufs_count = count;
+  return current;
 }
 
-int uvtls_ringbuffer_head_blocks_commit(uvtls_ringbuffer_t *rb, int size) {
-  int initial_size = rb->size;
-  int remaining = size;
-
-  while (remaining > 0) {
-    int to_commit;
-    if (rb->head.block == rb->tail.block) {
-      assert(rb->tail.index >= rb->head.index &&
-             "Tail index should always be greater than or equal to head index");
-      to_commit = rb->tail.index - rb->head.index;
-      if (to_commit == 0) {
-        assert(initial_size >= rb->size &&
-               "The ring buffer size should remain the same or decrease");
-        return initial_size - rb->size;
-      }
-      if (to_commit > remaining) {
-        to_commit = remaining;
-      }
-    } else {
-      to_commit = UVTLS_RING_BUFFER_BLOCK_SIZE - rb->head.index;
-      if (to_commit > remaining) {
-        to_commit = remaining;
-      }
-      if (to_commit == 0) {
-        pop_head_block(rb);
-        continue;
-      }
-    }
-
-    rb->head.index += to_commit;
-    rb->size -= to_commit;
-    remaining -= to_commit;
+void uvtls_ringbuffer_head_blocks_commit(uvtls_ringbuffer_t *rb,
+                                         uvtls_ringbuffer_pos_t pos) {
+  while (rb->head.block != pos.block && rb->head.block != rb->tail.block) {
+    pop_head_block(rb);
   }
-
-  assert(initial_size >= rb->size &&
-         "The ring buffer size should remain the same or decrease");
-  return initial_size - rb->size;
+  rb->head = pos;
 }

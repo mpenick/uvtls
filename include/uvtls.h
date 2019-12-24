@@ -65,6 +65,7 @@ struct uvtls_s {
   uvtls_connect_t *connect_req;
   uvtls_connection_cb connection_cb;
   uvtls_accept_cb accept_cb;
+  uvtls_ringbuffer_pos_t commit_pos;
 };
 
 struct uvtls_connect_s {
@@ -77,8 +78,8 @@ struct uvtls_write_s {
   uv_write_t req;
   void *data;
   uvtls_t *tls;
-  int to_commit;
   uvtls_write_cb cb;
+  uvtls_ringbuffer_pos_t commit_pos;
 };
 
 typedef enum {

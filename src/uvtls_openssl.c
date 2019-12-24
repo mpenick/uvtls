@@ -300,8 +300,23 @@ static void ssl_print_error() {
   }
 }
 
+int do_write(uv_write_t *req, uvtls_t *tls, const uvtls_ringbuffer_pos_t pos,
+             uvtls_ringbuffer_pos_t *commit_pos, uv_write_cb cb) {
+  /* FIXME: Handle arbitrary sizes, this only handles 4,194,624 bytes */
+  uv_buf_t bufs[16];
+  int bufs_count = sizeof(bufs) / sizeof(bufs[0]);
+
+  *commit_pos =
+      uvtls_ringbuffer_head_blocks(&tls->outgoing, pos, bufs, &bufs_count);
+
+  return uv_write(req, (uv_stream_t *)tls->stream, bufs,
+                  (unsigned int)bufs_count, cb);
+}
+
 static int do_handshake(uvtls_t *tls) {
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
+
+  uvtls_ringbuffer_pos_t pos = tls->outgoing.tail;
 
   int rc = SSL_do_handshake(session->ssl);
   if (rc <= 0) {
@@ -312,7 +327,19 @@ static int do_handshake(uvtls_t *tls) {
     }
   }
 
+  int size = uvtls_ringbuffer_size(&tls->outgoing);
+  printf("handshake size %d\n", size);
+
+  if (size > 0) {
+    uv_write_t *req = (uv_write_t *)malloc(sizeof(uv_write_t));
+    req->data = tls;
+
+    return do_write(req, tls, pos, &tls->commit_pos, on_handshake_write);
+  }
+
   /* FIXME: Why reading the bio instead of ring buffer */
+
+  /*
   char data[UVTLS_HANDSHAKE_MAX_BUFFER_SIZE];
   int size =
       BIO_read(session->outgoing_bio, data, UVTLS_HANDSHAKE_MAX_BUFFER_SIZE);
@@ -327,6 +354,7 @@ static int do_handshake(uvtls_t *tls) {
     return uv_write(req, (uv_stream_t *)tls->stream, &bufs, 1,
                     on_handshake_write);
   }
+  */
 
   return 0;
 }
@@ -374,7 +402,8 @@ static void on_alloc(uv_handle_t *handle, size_t suggested_size,
 }
 
 static void on_handshake_write(uv_write_t *req, int status) {
-  free(req->data);
+  uvtls_t *tls = (uvtls_t *)req->data;
+  uvtls_ringbuffer_head_blocks_commit(&tls->outgoing, tls->commit_pos);
   free(req);
 }
 
@@ -456,7 +485,7 @@ static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
 static void on_write(uv_write_t *req, int status) {
   uvtls_write_t *write_req = (uvtls_write_t *)req->data;
   uvtls_ringbuffer_head_blocks_commit(&write_req->tls->outgoing,
-                                      write_req->to_commit);
+                                      write_req->commit_pos);
   write_req->cb(write_req, status);
 }
 
@@ -533,6 +562,7 @@ int uvtls_init(uvtls_t *tls, uvtls_context_t *context, uv_stream_t *stream) {
   tls->read_cb = NULL;
   tls->connect_req = NULL;
   tls->connection_cb = NULL;
+  tls->commit_pos = (uvtls_ringbuffer_pos_t){.block = NULL, .index = 0};
   /* FIXME: OOM */
   uvtls_ringbuffer_init(&tls->incoming);
   uvtls_ringbuffer_init(&tls->outgoing);
@@ -632,17 +662,12 @@ int uvtls_write(uvtls_write_t *req, uvtls_t *tls, const uv_buf_t bufs[],
   req->tls = tls;
   tls->stream->data = tls;
 
+  const uvtls_ringbuffer_pos_t pos = tls->outgoing.tail;
+
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
   for (unsigned int i = 0; i < nbufs; ++i) {
     SSL_write(session->ssl, bufs[i].base, (int)bufs[i].len);
   }
 
-  uv_buf_t temp[2];
-  int n = uvtls_ringbuffer_head_blocks(&tls->outgoing, temp, 2);
-
-  req->to_commit = 0;
-  for (int i = 0; i < n; ++i)
-    req->to_commit += temp[i].len;
-  return uv_write(&req->req, (uv_stream_t *)tls->stream, temp, (unsigned int)n,
-                  on_write);
+  return do_write(&req->req, tls, pos, &req->commit_pos, on_write);
 }

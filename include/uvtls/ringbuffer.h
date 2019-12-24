@@ -7,16 +7,16 @@
 
 typedef struct uvtls_ringbuffer_s uvtls_ringbuffer_t;
 typedef struct uvtls_ringbuffer_block_s uvtls_ringbuffer_block_t;
-typedef struct uvtls_ringbuffer_position_s uvtls_ringbuffer_position_t;
+typedef struct uvtls_ringbuffer_pos_s uvtls_ringbuffer_pos_t;
 
-struct uvtls_ringbuffer_position_s {
+struct uvtls_ringbuffer_pos_s {
   int index;
   uvtls_ringbuffer_block_t *block;
 };
 
 struct uvtls_ringbuffer_s {
-  uvtls_ringbuffer_position_t tail;
-  uvtls_ringbuffer_position_t head;
+  uvtls_ringbuffer_pos_t tail;
+  uvtls_ringbuffer_pos_t head;
   uvtls_ringbuffer_block_t *empty_blocks;
   int size;
   long ret;
@@ -43,9 +43,12 @@ void uvtls_ringbuffer_tail_block_commit(uvtls_ringbuffer_t *rb, int size);
 
 int uvtls_ringbuffer_read(uvtls_ringbuffer_t *rb, char *data, int len);
 
-int uvtls_ringbuffer_head_blocks(const uvtls_ringbuffer_t *rb, uv_buf_t *bufs,
-                                 int bufs_count);
+uvtls_ringbuffer_pos_t
+uvtls_ringbuffer_head_blocks(const uvtls_ringbuffer_t *rb,
+                             uvtls_ringbuffer_pos_t pos, uv_buf_t *bufs,
+                             int *bufs_count);
 
-int uvtls_ringbuffer_head_blocks_commit(uvtls_ringbuffer_t *rb, int size);
+void uvtls_ringbuffer_head_blocks_commit(uvtls_ringbuffer_t *rb,
+                                         uvtls_ringbuffer_pos_t pos);
 
 #endif /* UVTLS_RINGBUFFER_H */
