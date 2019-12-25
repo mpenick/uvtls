@@ -1,5 +1,6 @@
 #include <uvtls.h>
 
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -198,6 +199,27 @@ void test_client_server() {
   uv_loop_close(&loop);
 }
 
+char *load_file(const char *filename) {
+  FILE *f = fopen(filename, "r");
+  if (!f) {
+    return NULL;
+  }
+
+  fseek(f, 0, SEEK_END);
+
+  long size = ftell(f);
+  assert(size >= 0 && "Negative value returned for file size");
+  char *contents = (char *)malloc((size_t)size + 1);
+
+  fseek(f, 0, SEEK_SET);
+  size_t nread = fread(contents, (size_t)size, 1, f);
+  assert(nread == 1 && "Unable to read contents of the file");
+
+  contents[size] = '\0';
+
+  return contents;
+}
+
 void test_client() {
   uv_loop_t loop;
   uv_tcp_t tcp;
@@ -212,9 +234,17 @@ void test_client() {
 
   uvtls_context_init(&tls_context,
                      UVTLS_CONTEXT_LIB_INIT | UVTLS_CONTEXT_DEBUG);
-  uvtls_context_set_verify_flags(&tls_context, UVTLS_VERIFY_NONE);
+  uvtls_context_set_verify_flags(&tls_context, UVTLS_VERIFY_PEER_IDENT);
+
+  char *ca_certs = load_file("www-google-com-chain.pem");
+
+  uvtls_context_add_trusted_certs(&tls_context, ca_certs, strlen(ca_certs));
+
+  free(ca_certs);
 
   uvtls_init(&tls, &tls_context, (uv_stream_t *)&tcp);
+
+  uvtls_set_hostname(&tls, "google.com", strlen("google.com"));
 
   uv_connect_t connect_req;
   connect_req.data = &tls;
