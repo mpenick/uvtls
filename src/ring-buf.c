@@ -1,4 +1,4 @@
-#include <uvtls/ring_buf.h>
+#include <uvtls/ring-buf.h>
 
 #include <assert.h>
 #include <stdlib.h>
