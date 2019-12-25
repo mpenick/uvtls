@@ -2,7 +2,7 @@
 #define UVTLS_H
 
 #include <uv.h>
-#include <uvtls/ring_buf.h>
+#include <uvtls/ring-buf.h>
 
 /*
  * TODO:

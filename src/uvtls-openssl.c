@@ -13,7 +13,7 @@
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
 
-#include "curl_hostcheck.h"
+#include "curl-hostcheck.h"
 
 #if defined(OPENSSL_VERSION_NUMBER) && !defined(LIBRESSL_VERSION_NUMBER)
 #if (OPENSSL_VERSION_NUMBER >= 0x10100000L)

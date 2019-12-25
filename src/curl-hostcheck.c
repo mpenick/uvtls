@@ -20,7 +20,7 @@
  *
  ***************************************************************************/
 
-#include "curl_hostcheck.h"
+#include "curl-hostcheck.h"
 
 #include <stdlib.h>
 #include <string.h>
