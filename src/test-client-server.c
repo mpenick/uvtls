@@ -1,6 +1,7 @@
 #include <uvtls.h>
 
 #include <assert.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -20,6 +21,11 @@ void on_client_write(uvtls_write_t *req, int status) {
 }
 
 void on_client_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
+  if (nread < 0) {
+    uv_close((uv_handle_t *)tls->stream, on_client_close);
+    return;
+  }
+
   printf("server: %.*s\n", (int)nread, buf->base);
 
   {
@@ -58,6 +64,13 @@ void on_write(uvtls_write_t *req, int status);
 void on_close(uv_handle_t *handle) { printf("client close\n"); }
 
 void on_connect(uvtls_connect_t *req, int status) {
+  if (status != 0) {
+    fprintf(stderr, "Failed to connect \"%s\"\n", uvtls_strerror(status));
+    uv_close((uv_handle_t *)req->tls->stream, on_close);
+    free(req);
+    return;
+  }
+
   uvtls_write_t *write_req = (uvtls_write_t *)malloc(sizeof(uvtls_write_t));
 
   uv_buf_t buf;
@@ -166,8 +179,7 @@ void test_client_server() {
   uv_tcp_init(&loop, &server);
   uv_tcp_bind(&server, (const struct sockaddr *)&bindaddr, 0);
 
-  uvtls_context_init(&tls_context_server,
-                     UVTLS_CONTEXT_LIB_INIT | UVTLS_CONTEXT_DEBUG);
+  uvtls_context_init(&tls_context_server, UVTLS_CONTEXT_LIB_INIT);
   uvtls_context_set_verify_flags(&tls_context_server, UVTLS_VERIFY_NONE);
   uvtls_context_set_cert(&tls_context_server, cert, strlen(cert));
   uvtls_context_set_private_key(&tls_context_server, key, strlen(key));
@@ -180,6 +192,8 @@ void test_client_server() {
   uv_tcp_init(&loop, &client);
   uvtls_context_init(&tls_context_client, UVTLS_CONTEXT_LIB_INIT);
   uvtls_context_set_verify_flags(&tls_context_client, UVTLS_VERIFY_PEER_CERT);
+
+  uvtls_context_add_trusted_certs(&tls_context_client, cert, strlen(cert));
 
   uvtls_init(&tls_client, &tls_context_client, (uv_stream_t *)&client);
 
@@ -232,8 +246,7 @@ void test_client() {
   uv_loop_init(&loop);
   uv_tcp_init(&loop, &tcp);
 
-  uvtls_context_init(&tls_context,
-                     UVTLS_CONTEXT_LIB_INIT | UVTLS_CONTEXT_DEBUG);
+  uvtls_context_init(&tls_context, UVTLS_CONTEXT_LIB_INIT);
   uvtls_context_set_verify_flags(&tls_context, UVTLS_VERIFY_PEER_IDENT);
 
   char *ca_certs = load_file("www-google-com-chain.pem");

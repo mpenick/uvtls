@@ -573,7 +573,7 @@ static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
   uvtls_t *tls = (uvtls_t *)stream->data;
 
   if (nread < 0) {
-    tls->read_cb(tls, nread, NULL);
+    tls->read_cb(tls, nread, buf);
     return;
   }
 
@@ -721,7 +721,9 @@ int uvtls_set_hostname(uvtls_t *tls, const char *hostname, size_t length) {
   tls->hostname[length] = '\0';
   memcpy(tls->hostname, hostname, length);
 
-  SSL_set_tlsext_host_name(session->ssl, tls->hostname);
+  SSL_set_tlsext_host_name(
+      session->ssl,
+      tls->hostname); /* FIXME: This should be in a separate function? */
 
   return 0;
 }

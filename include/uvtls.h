@@ -7,9 +7,7 @@
 /*
  * TODO:
  * - Error handling
- * - Verify flags
- * - Client-side certificates (done-ish)
- * - Trusted certificates
+ * - Extra certificates (server-side)
  */
 
 typedef struct uvtls_context_s uvtls_context_t;
@@ -27,9 +25,9 @@ typedef void (*uvtls_write_cb)(uvtls_write_t *req, int status);
 
 #define UVTLS__ERR(x) (UV_ERRNO_MAX - (x))
 
-#define UVTLS__UNKNOWN UVTLS__ERR(100) /* FIXME */
+#define UVTLS__UNKNOWN UVTLS__ERR(6)
 #define UVTLS__EINVAL UVTLS__ERR(5)
-#define UVTLS__EHANDSHAKE UVTLS__ERR(2)
+#define UVTLS__EHANDSHAKE UVTLS__ERR(4)
 #define UVTLS__ENOPEERCERT UVTLS__ERR(3)
 #define UVTLS__EBADPEERCERT UVTLS__ERR(2)
 #define UVTLS__EBADPEERIDENT UVTLS__ERR(1)
@@ -124,6 +122,9 @@ int uvtls_read_stop(uvtls_t *tls);
 
 int uvtls_write(uvtls_write_t *req, uvtls_t *tls, const uv_buf_t bufs[],
                 unsigned int nbufs, uvtls_write_cb cb);
+
+const char *uvtls_err_name(int err);
+char *uvtls_err_name_r(int error, char *buf, size_t buflen);
 
 const char *uvtls_strerror(int err);
 char *uvtls_strerror_r(int error, char *buf, size_t buflen);
