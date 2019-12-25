@@ -11,6 +11,9 @@
 #include <openssl/pkcs12.h>
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
+#include <openssl/x509v3.h>
+
+#include "curl_hostcheck.h"
 
 #if defined(OPENSSL_VERSION_NUMBER) && !defined(LIBRESSL_VERSION_NUMBER)
 #if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
@@ -363,6 +366,82 @@ static int do_handshake(uvtls_t *tls) {
   return 0;
 }
 
+typedef enum { MATCH, NO_MATCH, BAD_CERT, NO_SAN_PRESENT } match_t;
+
+static match_t match_san(X509 *peer_cert, const char *hostname) {
+  STACK_OF(GENERAL_NAME) *names = (STACK_OF(GENERAL_NAME) *)(X509_get_ext_d2i(
+      peer_cert, NID_subject_alt_name, NULL, NULL));
+  if (names == NULL) {
+    return NO_SAN_PRESENT;
+  }
+
+  match_t result = NO_MATCH;
+  for (int i = 0; i < sk_GENERAL_NAME_num(names); ++i) {
+    GENERAL_NAME *name = sk_GENERAL_NAME_value(names, i);
+
+    if (name->type == GEN_DNS) {
+      ASN1_STRING *str = name->d.dNSName;
+      if (str == NULL) {
+        result = BAD_CERT;
+        break;
+      }
+
+      const char *common_name = (const char *)(ASN1_STRING_get0_data(str));
+      if (strlen(common_name) != (size_t)(ASN1_STRING_length(str))) {
+        result = BAD_CERT;
+        break;
+      }
+
+      if (Curl_cert_hostcheck(common_name, hostname) == CURL_HOST_MATCH) {
+        result = MATCH;
+        break;
+      }
+    }
+  }
+  sk_GENERAL_NAME_pop_free(names, GENERAL_NAME_free);
+
+  return result;
+}
+
+static match_t match_common_name(X509 *peer_cert, const char *hostname) {
+  X509_NAME *name = X509_get_subject_name(peer_cert);
+  if (name == NULL) {
+    return BAD_CERT;
+  }
+
+  int i = -1;
+  while ((i = X509_NAME_get_index_by_NID(name, NID_commonName, i)) >= 0) {
+    X509_NAME_ENTRY *name_entry = X509_NAME_get_entry(name, i);
+    if (name_entry == NULL) {
+      return BAD_CERT;
+    }
+
+    ASN1_STRING *str = X509_NAME_ENTRY_get_data(name_entry);
+    if (str == NULL) {
+      return BAD_CERT;
+    }
+
+    const char *common_name = (const char *)(ASN1_STRING_get0_data(str));
+    if (strlen(common_name) != (size_t)(ASN1_STRING_length(str))) {
+      return BAD_CERT;
+    }
+
+    if (Curl_cert_hostcheck(common_name, hostname) == CURL_HOST_MATCH) {
+      return MATCH;
+    }
+  }
+
+  return NO_MATCH;
+}
+
+static match_t match(X509 *peer_cert, const char *hostname) {
+  match_t result = match_san(peer_cert, hostname);
+  if (result == NO_SAN_PRESENT) {
+    result = match_common_name(peer_cert, hostname);
+  }
+  return result;
+}
+
 static int verify(uvtls_t *tls) {
   int verify_flags = tls->context->verify_flags;
   if (!verify_flags) {
@@ -378,7 +457,8 @@ static int verify(uvtls_t *tls) {
     goto error;
   }
 
-  if (verify_flags & UVTLS_VERIFY_PEER_CERT) {
+  if (verify_flags & UVTLS_VERIFY_PEER_CERT ||
+      verify_flags & UVTLS_VERIFY_PEER_IDENT) {
     long rc = SSL_get_verify_result(session->ssl);
     if (rc != X509_V_OK) {
       result = UVTLS_EBADPEERCERT;
@@ -386,11 +466,24 @@ static int verify(uvtls_t *tls) {
     }
   }
 
-  if (verify_flags & UVTLS_VERIFY_PEER_IDENTITY) {
-    result = UVTLS_EBADPEERIDNT;
-    goto error;
+  if (verify_flags & UVTLS_VERIFY_PEER_IDENT) {
+    switch (match(peer_cert, tls->hostname)) {
+    case MATCH:
+      /* Success */
+      break;
+    case NO_MATCH:
+      result = UVTLS_EBADPEERIDENT;
+      goto error;
+    case BAD_CERT:
+      result = UVTLS_EBADPEERCERT;
+      goto error;
+    default:
+      result = UVTLS_UNKNOWN;
+      goto error;
+    }
   }
 
+  X509_free(peer_cert);
   return 0;
 
 error:
@@ -527,18 +620,27 @@ void uvtls_context_set_verify_flags(uvtls_context_t *context,
   context->verify_flags = verify_flags;
 }
 
-int uvtls_context_add_trusted_cert(uvtls_context_t *context, const char *cert,
-                                   size_t length) {
+int uvtls_context_add_trusted_certs(uvtls_context_t *context, const char *cert,
+                                    size_t length) {
+  X509_STORE *trusted_store = SSL_CTX_get_cert_store((SSL_CTX *)context->impl);
 
-  X509 *x509 = load_cert(cert, length);
-  if (x509 == NULL) {
-    return UVTLS_EINVAL;
+  BIO *bio = BIO_new_mem_buf(cert, (int)length);
+  if (bio == NULL) {
+    return UV_ENOMEM;
   }
 
-  X509_STORE *trusted_store = SSL_CTX_get_cert_store((SSL_CTX *)context->impl);
-  X509_STORE_add_cert(trusted_store, x509);
-  X509_free(x509);
-  return 0;
+  int ncerts = 0;
+
+  X509 *x509;
+  while ((x509 = PEM_read_bio_X509(bio, NULL, NULL, NULL)) != NULL) {
+    X509_STORE_add_cert(trusted_store, x509);
+    X509_free(x509);
+    ncerts++;
+  }
+
+  BIO_free_all(bio);
+
+  return ncerts == 0 ? UVTLS_EINVAL : 0;
 }
 
 int uvtls_context_set_cert(uvtls_context_t *context, const char *cert,
@@ -611,11 +713,16 @@ void uvtls_close(uvtls_t *tls) {
 }
 
 int uvtls_set_hostname(uvtls_t *tls, const char *hostname, size_t length) {
+  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
+
   if (length + 1 > sizeof(tls->hostname)) {
     return UV_EINVAL;
   }
   tls->hostname[length] = '\0';
   memcpy(tls->hostname, hostname, length);
+
+  SSL_set_tlsext_host_name(session->ssl, tls->hostname);
+
   return 0;
 }
 

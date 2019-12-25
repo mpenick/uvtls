@@ -32,7 +32,7 @@ typedef void (*uvtls_write_cb)(uvtls_write_t *req, int status);
 #define UVTLS__EHANDSHAKE UVTLS__ERR(2)
 #define UVTLS__ENOPEERCERT UVTLS__ERR(3)
 #define UVTLS__EBADPEERCERT UVTLS__ERR(2)
-#define UVTLS__EBADPEERIDNT UVTLS__ERR(1)
+#define UVTLS__EBADPEERIDENT UVTLS__ERR(1)
 
 #define UVTLS_ERRNO_MAP(XX)                                                    \
   XX(UNKNOWN, "unknown tls error")                                             \
@@ -40,7 +40,7 @@ typedef void (*uvtls_write_cb)(uvtls_write_t *req, int status);
   XX(EHANDSHAKE, "handshake error")                                            \
   XX(ENOPEERCERT, "no peer certificate")                                       \
   XX(EBADPEERCERT, "invalid peer certificate")                                 \
-  XX(EBADPEERIDNT, "invalid peer identity")
+  XX(EBADPEERIDENT, "invalid peer identity")
 
 typedef enum {
 #define XX(code, _) UVTLS_##code = UVTLS__##code,
@@ -93,7 +93,7 @@ typedef enum {
 typedef enum {
   UVTLS_VERIFY_NONE = 0x00,
   UVTLS_VERIFY_PEER_CERT = 0x01,
-  UVTLS_VERIFY_PEER_IDENTITY = 0x02
+  UVTLS_VERIFY_PEER_IDENT = 0x02
 } uvtls_verify_flags_t;
 
 int uvtls_context_init(uvtls_context_t *context, int init_flags);
@@ -101,8 +101,8 @@ void uvtls_context_close(uvtls_context_t *context);
 
 void uvtls_context_set_verify_flags(uvtls_context_t *context, int verify_flags);
 
-int uvtls_context_add_trusted_cert(uvtls_context_t *context, const char *cert,
-                                   size_t length);
+int uvtls_context_add_trusted_certs(uvtls_context_t *context, const char *cert,
+                                    size_t length);
 int uvtls_context_set_cert(uvtls_context_t *context, const char *cert,
                            size_t length);
 int uvtls_context_set_private_key(uvtls_context_t *context, const char *key,
@@ -124,5 +124,8 @@ int uvtls_read_stop(uvtls_t *tls);
 
 int uvtls_write(uvtls_write_t *req, uvtls_t *tls, const uv_buf_t bufs[],
                 unsigned int nbufs, uvtls_write_cb cb);
+
+const char *uvtls_strerror(int err);
+char *uvtls_strerror_r(int error, char *buf, size_t buflen);
 
 #endif /* UVTLS_H */
