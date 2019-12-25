@@ -4,7 +4,7 @@ project(uvtls VERSION 0.1 DESCRIPTION "TLS for libuv")
 
 ####
 
-add_library(uvtls SHARED src/uvtls-openssl.c src/ring-buf.c src/curl-hostcheck.c)
+add_library(uvtls SHARED src/uvtls-openssl.c src/uvtls-common.c src/ring-buf.c src/curl-hostcheck.c)
 
 set_target_properties(uvtls PROPERTIES VERSION ${PROJECT_VERSION})
 set_target_properties(uvtls PROPERTIES SOVERSION 0)
