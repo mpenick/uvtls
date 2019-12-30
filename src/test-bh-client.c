@@ -20,13 +20,14 @@ struct request_s {
 };
 
 void on_connect(uvtls_connect_t *req, int status) {
+  uv_buf_t buf;
+  request_t *request = (request_t *)req->data;
+
   if (status != 0) {
     fprintf(stderr, "Failed to connect \"%s\"\n", uvtls_strerror(status));
     uvtls_close(req->tls, on_close);
     return;
   }
-
-  request_t *request = (request_t *)req->data;
 
   request->data[0] = 1;
   request->data[1] = (char)((request->length >> 24) & 0xff);
@@ -35,7 +36,6 @@ void on_connect(uvtls_connect_t *req, int status) {
   request->data[4] = (char)((request->length) & 0xff);
   request->data[5] = 'a';
 
-  uv_buf_t buf;
   buf.base = request->data;
   buf.len = 64 * 1024;
 
@@ -67,8 +67,7 @@ void on_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
 }
 
 void on_write(uvtls_write_t *req, int status) {
-  // uvtls_read_start(req->tls, on_alloc, on_read);
-
+  uv_buf_t buf;
   request_t *request = (request_t *)req->data;
 
   if (request->length == 0) {
@@ -76,7 +75,6 @@ void on_write(uvtls_write_t *req, int status) {
     return;
   }
 
-  uv_buf_t buf;
   buf.base = request->data;
   buf.len = 64 * 1024;
 
@@ -142,15 +140,16 @@ static const char *key =
     "-----END PRIVATE KEY-----\n";
 
 int main() {
+  struct sockaddr_in addr;
   uv_loop_t loop;
   uv_tcp_t client;
   uvtls_t tls_client;
   uvtls_context_t tls_context_client;
+  uv_connect_t connect_req;
   request_t request;
 
   uv_loop_init(&loop);
 
-  struct sockaddr_in addr;
   uv_ip4_addr("127.0.0.1", 8888, &addr);
 
   uv_tcp_init(&loop, &client);
@@ -166,7 +165,6 @@ int main() {
   request.write_req.data = &request;
   request.connect_req.data = &request;
 
-  uv_connect_t connect_req;
   connect_req.data = &request;
   uv_tcp_connect(&connect_req, &client, (const struct sockaddr *)&addr,
                  on_tcp_connect);

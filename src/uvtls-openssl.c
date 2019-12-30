@@ -129,9 +129,10 @@ int ring_buf_bio_destroy(BIO *bio) {
 
 int ring_buf_bio_read(BIO *bio, char *out, int len) {
   int bytes;
+  uvtls_ring_buf_t *rb;
   BIO_clear_retry_flags(bio);
 
-  uvtls_ring_buf_t *rb = ring_buf_from_bio(bio);
+  rb = ring_buf_from_bio(bio);
   bytes = uvtls_ring_buf_read(rb, out, len);
 
   if (bytes == 0) {
@@ -222,16 +223,18 @@ BIO *create_bio(uvtls_ring_buf_t *rb) {
 }
 
 static X509 *load_cert(const char *cert, size_t length) {
+  BIO *bio;
+  X509 *x509;
   if (length > INT_MAX) {
     return NULL;
   }
 
-  BIO *bio = BIO_new_mem_buf(cert, (int)length);
+  bio = BIO_new_mem_buf(cert, (int)length);
   if (bio == NULL) {
     return NULL;
   }
 
-  X509 *x509 = PEM_read_bio_X509(bio, NULL, NULL, NULL);
+  x509 = PEM_read_bio_X509(bio, NULL, NULL, NULL);
   if (x509 == NULL) {
     return NULL;
   }
@@ -242,15 +245,17 @@ static X509 *load_cert(const char *cert, size_t length) {
 }
 
 static EVP_PKEY *load_key(const char *key, size_t length) {
+  BIO *bio;
+  EVP_PKEY *pkey;
   if (length > INT_MAX) {
     return NULL;
   }
-  BIO *bio = BIO_new_mem_buf(key, (int)length);
+  bio = BIO_new_mem_buf(key, (int)length);
   if (bio == NULL) {
     return NULL;
   }
 
-  EVP_PKEY *pkey = PEM_read_bio_PrivateKey(bio, NULL, NULL, NULL);
+  pkey = PEM_read_bio_PrivateKey(bio, NULL, NULL, NULL);
   if (pkey == NULL) {
     return NULL;
   }
@@ -303,6 +308,7 @@ static int do_write(uv_write_t *req, uvtls_t *tls,
                     uvtls_ring_buf_pos_t *commit_pos, uv_write_cb cb) {
   uv_buf_t stack_bufs[UVTLS_STACK_BUFS_COUNT];
 
+  int rc;
   int bufs_count;
   uv_buf_t *bufs;
 
@@ -320,8 +326,8 @@ static int do_write(uv_write_t *req, uvtls_t *tls,
 
   *commit_pos =
       uvtls_ring_buf_head_blocks(&tls->outgoing, start_pos, bufs, &bufs_count);
-  int rc = uv_write(req, (uv_stream_t *)tls->stream, bufs,
-                    (unsigned int)bufs_count, cb);
+  rc = uv_write(req, (uv_stream_t *)tls->stream, bufs, (unsigned int)bufs_count,
+                cb);
 
   if (bufs != stack_bufs) {
     free(bufs);
@@ -362,24 +368,26 @@ static int do_handshake(uvtls_t *tls) {
 typedef enum { MATCH, NO_MATCH, BAD_CERT, NO_SAN_PRESENT } match_t;
 
 static match_t match_san(X509 *peer_cert, const char *hostname) {
+  int i;
+  match_t result = NO_MATCH;
   STACK_OF(GENERAL_NAME) *names = (STACK_OF(GENERAL_NAME) *)(X509_get_ext_d2i(
       peer_cert, NID_subject_alt_name, NULL, NULL));
   if (names == NULL) {
     return NO_SAN_PRESENT;
   }
 
-  match_t result = NO_MATCH;
-  for (int i = 0; i < sk_GENERAL_NAME_num(names); ++i) {
+  for (i = 0; i < sk_GENERAL_NAME_num(names); ++i) {
     GENERAL_NAME *name = sk_GENERAL_NAME_value(names, i);
 
     if (name->type == GEN_DNS) {
+      const char *common_name;
       ASN1_STRING *str = name->d.dNSName;
       if (str == NULL) {
         result = BAD_CERT;
         break;
       }
 
-      const char *common_name = (const char *)(ASN1_STRING_get0_data(str));
+      common_name = (const char *)(ASN1_STRING_get0_data(str));
       if (strlen(common_name) != (size_t)(ASN1_STRING_length(str))) {
         result = BAD_CERT;
         break;
@@ -397,24 +405,26 @@ static match_t match_san(X509 *peer_cert, const char *hostname) {
 }
 
 static match_t match_common_name(X509 *peer_cert, const char *hostname) {
+  int i = -1;
   X509_NAME *name = X509_get_subject_name(peer_cert);
   if (name == NULL) {
     return BAD_CERT;
   }
 
-  int i = -1;
   while ((i = X509_NAME_get_index_by_NID(name, NID_commonName, i)) >= 0) {
+    ASN1_STRING *str;
+    const char *common_name;
     X509_NAME_ENTRY *name_entry = X509_NAME_get_entry(name, i);
     if (name_entry == NULL) {
       return BAD_CERT;
     }
 
-    ASN1_STRING *str = X509_NAME_ENTRY_get_data(name_entry);
+    str = X509_NAME_ENTRY_get_data(name_entry);
     if (str == NULL) {
       return BAD_CERT;
     }
 
-    const char *common_name = (const char *)(ASN1_STRING_get0_data(str));
+    common_name = (const char *)(ASN1_STRING_get0_data(str));
     if (strlen(common_name) != (size_t)(ASN1_STRING_length(str))) {
       return BAD_CERT;
     }
@@ -436,15 +446,17 @@ static match_t match(X509 *peer_cert, const char *hostname) {
 }
 
 static int verify(uvtls_t *tls) {
+  int result = UVTLS_UNKNOWN;
+  uvtls_session_t *session;
+  X509 *peer_cert;
   int verify_flags = tls->context->verify_flags;
   if (!verify_flags) {
     return 0;
   }
 
-  int result = UVTLS_UNKNOWN;
-  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
+  session = (uvtls_session_t *)tls->impl;
 
-  X509 *peer_cert = SSL_get_peer_certificate(session->ssl);
+  peer_cert = SSL_get_peer_certificate(session->ssl);
   if (peer_cert == NULL) {
     result = UVTLS_ENOPEERCERT;
     goto error;
@@ -498,7 +510,7 @@ static void on_handshake_write(uv_write_t *req, int status) {
 
 static void on_handshake_connect_read(uv_stream_t *stream, ssize_t nread,
                                       const uv_buf_t *buf) {
-
+  int rc;
   uvtls_t *tls = (uvtls_t *)stream->data;
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
 
@@ -511,7 +523,7 @@ static void on_handshake_connect_read(uv_stream_t *stream, ssize_t nread,
 
   uvtls_ring_buf_tail_block_commit(&tls->incoming, (int)nread);
 
-  int rc = do_handshake(tls);
+  rc = do_handshake(tls);
   if (rc != 0) {
     uv_read_stop(stream);
     tls->connect_req->cb(tls->connect_req, rc);
@@ -523,7 +535,7 @@ static void on_handshake_connect_read(uv_stream_t *stream, ssize_t nread,
 
 static void on_handshake_accept_read(uv_stream_t *stream, ssize_t nread,
                                      const uv_buf_t *buf) {
-
+  int rc;
   uvtls_t *tls = (uvtls_t *)stream->data;
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
 
@@ -536,7 +548,7 @@ static void on_handshake_accept_read(uv_stream_t *stream, ssize_t nread,
 
   uvtls_ring_buf_tail_block_commit(&tls->incoming, (int)nread);
 
-  int rc = do_handshake(tls);
+  rc = do_handshake(tls);
   if (rc != 0) {
     uv_read_stop(stream);
     tls->accept_cb(tls, rc);
@@ -549,6 +561,7 @@ static void on_handshake_accept_read(uv_stream_t *stream, ssize_t nread,
 static void do_read(uvtls_t *tls) {
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
   while (tls->read_cb) {
+    int nread;
     uv_buf_t *buf = &tls->alloc_buf;
     if (buf->base == NULL) {
       tls->alloc_cb(tls, UVTLS_SUGGESTED_READ_SIZE, buf);
@@ -558,7 +571,7 @@ static void do_read(uvtls_t *tls) {
       }
       assert(buf->len <= INT_MAX && "Allocate read buf is too big");
     }
-    int nread = SSL_read(session->ssl, buf->base, (int)buf->len);
+    nread = SSL_read(session->ssl, buf->base, (int)buf->len);
     if (nread < 0) {
       int error = SSL_get_error(session->ssl, nread);
       if (error == SSL_ERROR_WANT_READ) {
@@ -605,11 +618,13 @@ static void on_close(uv_handle_t *handle) {
 }
 
 int uvtls_context_init(uvtls_context_t *context, int flags) {
+  SSL_CTX *ssl_ctx;
+
   if (flags & UVTLS_CONTEXT_LIB_INIT) {
     uv_once(&lib_init_guard__, lib_init);
   }
 
-  SSL_CTX *ssl_ctx = SSL_CTX_new(UVTLS_METHOD());
+  ssl_ctx = SSL_CTX_new(UVTLS_METHOD());
   if (!ssl_ctx) {
     return UV_ENOMEM;
   }
@@ -637,6 +652,8 @@ void uvtls_context_set_verify_flags(uvtls_context_t *context,
 
 int uvtls_context_add_trusted_certs(uvtls_context_t *context, const char *cert,
                                     size_t length) {
+  int ncerts = 0;
+  X509 *x509;
   X509_STORE *trusted_store = SSL_CTX_get_cert_store((SSL_CTX *)context->impl);
 
   BIO *bio = BIO_new_mem_buf(cert, (int)length);
@@ -644,9 +661,6 @@ int uvtls_context_add_trusted_certs(uvtls_context_t *context, const char *cert,
     return UV_ENOMEM;
   }
 
-  int ncerts = 0;
-
-  X509 *x509;
   while ((x509 = PEM_read_bio_X509(bio, NULL, NULL, NULL)) != NULL) {
     X509_STORE_add_cert(trusted_store, x509);
     X509_free(x509);
@@ -683,7 +697,10 @@ int uvtls_context_set_private_key(uvtls_context_t *context, const char *key,
 }
 
 int uvtls_init(uvtls_t *tls, uvtls_context_t *context, uv_stream_t *stream) {
+  int rc;
+
   ring_buf_bio_init_once();
+
   tls->stream = stream;
   tls->context = context;
   tls->hostname[0] = '\0';
@@ -692,10 +709,10 @@ int uvtls_init(uvtls_t *tls, uvtls_context_t *context, uv_stream_t *stream) {
   tls->read_cb = NULL;
   tls->connect_req = NULL;
   tls->connection_cb = NULL;
-  tls->commit_pos = (uvtls_ring_buf_pos_t){.block = NULL, .index = 0};
+  tls->commit_pos = uvtls_ring_buf_pos_init(0, NULL);
   tls->close_cb = NULL;
 
-  int rc = uvtls_ring_buf_init(&tls->incoming);
+  rc = uvtls_ring_buf_init(&tls->incoming);
   if (rc != 0) {
     goto error;
   }
@@ -737,6 +754,7 @@ int uvtls_set_hostname(uvtls_t *tls, const char *hostname, size_t length) {
 }
 
 int uvtls_connect(uvtls_connect_t *req, uvtls_t *tls, uvtls_connect_cb cb) {
+  int rc;
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
 
   req->tls = tls;
@@ -746,7 +764,7 @@ int uvtls_connect(uvtls_connect_t *req, uvtls_t *tls, uvtls_connect_cb cb) {
 
   SSL_set_connect_state(session->ssl);
 
-  int rc = do_handshake(tls);
+  rc = do_handshake(tls);
   assert(!SSL_is_init_finished(session->ssl) &&
          "Handshake shouldn't be finished");
   if (rc != 0) {
@@ -814,16 +832,19 @@ int uvtls_read_stop(uvtls_t *tls) { return uv_read_stop(tls->stream); }
 
 int uvtls_write(uvtls_write_t *req, uvtls_t *tls, const uv_buf_t bufs[],
                 unsigned int nbufs, uvtls_write_cb cb) {
+  uvtls_session_t *session;
+  unsigned int i;
+
+  const uvtls_ring_buf_pos_t start_pos = tls->outgoing.tail;
+  int start_size = uvtls_ring_buf_size(&tls->outgoing);
+
   req->req.data = req;
   req->cb = cb;
   req->tls = tls;
   tls->stream->data = tls;
 
-  const uvtls_ring_buf_pos_t start_pos = tls->outgoing.tail;
-  int start_size = uvtls_ring_buf_size(&tls->outgoing);
-
-  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
-  for (unsigned int i = 0; i < nbufs; ++i) {
+  session = (uvtls_session_t *)tls->impl;
+  for (i = 0; i < nbufs; ++i) {
     SSL_write(session->ssl, bufs[i].base, (int)bufs[i].len);
   }
 

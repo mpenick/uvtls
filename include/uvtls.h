@@ -6,10 +6,13 @@
 
 /*
  * TODO:
- * - Better error handling
- * - Handle all OOM cases
- * - Server certificates chain (server-side)
+ * - Better error and OOM handling
+ * - Provide a way to change supported ciphers
+ * - Handle TLS renegotiation
+ * - Server certificates chain support
  * - Replace allocator
+ * - Support other TLS libraries (boringssl, SChannel, NSS)
+ * - Move more core implementation into the shared code
  */
 
 typedef struct uvtls_context_s uvtls_context_t;
@@ -92,7 +95,7 @@ struct uvtls_write_s {
 
 typedef enum {
   UVTLS_CONTEXT_LIB_INIT = 0x01,
-  UVTLS_CONTEXT_DEBUG = 0x02,
+  UVTLS_CONTEXT_DEBUG = 0x02
 } uvtls_context_flags_t;
 
 typedef enum {

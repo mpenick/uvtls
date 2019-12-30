@@ -258,8 +258,8 @@ void MD5_Final(unsigned char *result, MD5_CTX *ctx) {
 }
 
 int rand_range(int min, int max) {
-  assert(max >= min && "Max should be greater than min");
   int delta = max - min;
+  assert(max >= min && "Max should be greater than min");
   if (delta == 0) {
     return min;
   }
@@ -268,14 +268,15 @@ int rand_range(int min, int max) {
 }
 
 void fill_random(char *buf, int length) {
-  for (int i = 0; i < length; ++i) {
+  int i;
+  for (i = 0; i < length; ++i) {
     buf[i] = (char)97 + rand() % 26;
   }
   buf[length] = '\0';
 }
 
 #define MAX_LENGTH (1024 * 1024)
-//#define MAX_LENGTH (64 * 1024)
+/*#define MAX_LENGTH (64 * 1024)*/
 
 void test_write(uvtls_ring_buf_t *rb, const char *buf, int length) {
   const char *pos = buf;
@@ -294,34 +295,31 @@ void test_write(uvtls_ring_buf_t *rb, const char *buf, int length) {
 
 void test_read(uvtls_ring_buf_t *rb, int length, unsigned char md5[]) {
   MD5_CTX ctx;
+  int num_bytes;
   int remaining = length;
   char *temp = (char *)malloc(length + 1);
 
   MD5_Init(&ctx);
 
-  //// printf("A: ");
-  // while (remaining > 0) {
-  //  int to_copy = rand_range(1, remaining);
-  //  if (to_copy > remaining) {
-  //    to_copy = remaining;
-  //  }
-  //  int num_bytes = uvtls_ring_buf_read(rb, temp, to_copy);
-  //  temp[num_bytes] = '\0';
-  //  // printf("%s", temp);
-  //  MD5_Update(&ctx, temp, num_bytes);
-  //  remaining -= to_copy;
-  //}
-  //// printf("\n");
-
-  // printf("A: ");
-  int num_bytes;
-  while ((num_bytes = uvtls_ring_buf_read(rb, temp, rand_range(1, length))) >
-         0) {
+  /*
+  while (remaining > 0) {
+    int to_copy = rand_range(1, remaining);
+    if (to_copy > remaining) {
+      to_copy = remaining;
+    }
+    int num_bytes = uvtls_ring_buf_read(rb, temp, to_copy);
     temp[num_bytes] = '\0';
     // printf("%s", temp);
     MD5_Update(&ctx, temp, num_bytes);
+    remaining -= to_copy;
   }
-  // printf("\n");
+  */
+
+  while ((num_bytes = uvtls_ring_buf_read(rb, temp, rand_range(1, length))) >
+         0) {
+    temp[num_bytes] = '\0';
+    MD5_Update(&ctx, temp, num_bytes);
+  }
 
   MD5_Final(md5, &ctx);
 
@@ -329,9 +327,10 @@ void test_read(uvtls_ring_buf_t *rb, int length, unsigned char md5[]) {
 }
 
 void test_write_read(uvtls_ring_buf_t *rb, const char *buf) {
-  for (int i = 1; i <= 100000; ++i) {
+  int i;
+  for (i = 1; i <= 100000; ++i) {
     int length = rand_range(1, MAX_LENGTH);
-
+    unsigned char actual[16];
     unsigned char expected[16];
 
     MD5_CTX ctx;
@@ -340,7 +339,6 @@ void test_write_read(uvtls_ring_buf_t *rb, const char *buf) {
     MD5_Final(expected, &ctx);
 
     test_write(rb, buf, length);
-    unsigned char actual[16];
     test_read(rb, length, actual);
 
     if (memcmp(expected, actual, sizeof(expected)) != 0) {
@@ -416,8 +414,9 @@ void test_head_commit(uvtls_ring_buf_t *rb, int length, unsigned char md5[]) {
     }
     */
 
+    int i;
     int to_copy = 0;
-    for (int i = 0; i < bufs_count; ++i) {
+    for (i = 0; i < bufs_count; ++i) {
       to_copy += bufs[i].len;
       MD5_Update(&ctx, bufs[i].base, bufs[i].len);
     }
@@ -433,10 +432,12 @@ void test_head_commit(uvtls_ring_buf_t *rb, int length, unsigned char md5[]) {
 }
 
 void test_tail_head_commit(uvtls_ring_buf_t *rb, const char *buf) {
-  for (int i = 1; i <= 10000; ++i) {
+  int i;
+  for (i = 1; i <= 10000; ++i) {
     int length = rand_range(1, MAX_LENGTH);
 
     unsigned char expected[16];
+    unsigned char actual[16];
 
     MD5_CTX ctx;
     MD5_Init(&ctx);
@@ -444,7 +445,6 @@ void test_tail_head_commit(uvtls_ring_buf_t *rb, const char *buf) {
     MD5_Final(expected, &ctx);
 
     test_tail_commit(rb, buf, length);
-    unsigned char actual[16];
     test_head_commit(rb, length, actual);
 
     if (memcmp(expected, actual, sizeof(expected)) != 0) {
@@ -457,15 +457,16 @@ void test_tail_head_commit(uvtls_ring_buf_t *rb, const char *buf) {
 }
 
 void test_ring_buf() {
+  uvtls_ring_buf_t rb;
+  char *buf;
   srand(0x12345679);
 
-  uvtls_ring_buf_t rb;
   uvtls_ring_buf_init(&rb);
 
-  char *buf = (char *)malloc(MAX_LENGTH + 1);
+  buf = (char *)malloc(MAX_LENGTH + 1);
   fill_random(buf, MAX_LENGTH);
 
-  // test_write_read(&rb, buf);
+  /* test_write_read(&rb, buf); */
   test_tail_head_commit(&rb, buf);
 
   free(buf);
