@@ -5,84 +5,51 @@
 #include <stdlib.h>
 #include <string.h>
 
-void on_server_client_close(uvtls_t *tls) {
-  printf("server client close\n");
-  free(tls->stream);
-  free(tls);
-}
-
-void on_server_client_write(uvtls_write_t *req, int status) {
-  uvtls_close(req->tls, on_server_client_close);
-  free(req);
-}
-
-void on_server_client_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
-  if (nread < 0) {
-    uvtls_close(tls, on_server_client_close);
-    return;
-  }
-
-  printf("server: %.*s\n", (int)nread, buf->base);
-
-  {
-    uvtls_write_t *write_req = (uvtls_write_t *)malloc(sizeof(uvtls_write_t));
-    uv_buf_t buf;
-    buf.base = "<html><head>Hi</head><body>Bye</body></html>";
-    buf.len = strlen(buf.base);
-    uvtls_write(write_req, tls, &buf, 1, on_server_client_write);
-  }
-}
-
-void on_server_client_alloc(uvtls_t *tls, size_t suggested_size, uv_buf_t *buf) {
-  static char data[64 * 1024];
-  buf->base = data;
-  buf->len = sizeof(data);
-}
-
-void on_accept(uvtls_t *client, int status) {
-  printf("accept\n");
-  uvtls_read_start(client, on_server_client_alloc, on_server_client_read);
-}
-
-void on_connection(uvtls_t *server, int status) {
-  uv_tcp_t *tcp = (uv_tcp_t *)malloc(sizeof(uv_tcp_t));
-  uv_tcp_init(server->stream->loop, tcp);
-
-  uvtls_t *client = (uvtls_t *)malloc(sizeof(uvtls_t));
-  uvtls_init(client, server->context, (uv_stream_t *)tcp);
-
-  uvtls_accept(server, client, on_accept);
-  uvtls_close(server, NULL);
-}
-
 void on_write(uvtls_write_t *req, int status);
 
 void on_close(uvtls_t *tls) { printf("client close\n"); }
+
+typedef struct request_s request_t;
+
+struct request_s {
+  uvtls_t *tls;
+  uvtls_connect_t connect_req;
+  uvtls_write_t write_req;
+  size_t length;
+  char data[64 * 1024 + 5];
+};
 
 void on_connect(uvtls_connect_t *req, int status) {
   if (status != 0) {
     fprintf(stderr, "Failed to connect \"%s\"\n", uvtls_strerror(status));
     uvtls_close(req->tls, on_close);
-    free(req);
     return;
   }
 
-  uvtls_write_t *write_req = (uvtls_write_t *)malloc(sizeof(uvtls_write_t));
+  request_t *request = (request_t *)req->data;
+
+  request->data[0] = 1;
+  request->data[1] = (char)((request->length >> 24) & 0xff);
+  request->data[2] = (char)((request->length >> 16) & 0xff);
+  request->data[3] = (char)((request->length >> 8) & 0xff);
+  request->data[4] = (char)((request->length) & 0xff);
+  request->data[5] = 'a';
 
   uv_buf_t buf;
-  buf.base = "GET / HTTP/1.0\r\n"
-             "Host: www.google.com\r\n\r\n";
-  buf.len = strlen(buf.base);
-  uvtls_write(write_req, req->tls, &buf, 1, on_write);
+  buf.base = request->data;
+  buf.len = 64 * 1024;
 
-  free(req);
+  if (buf.len > request->length) {
+    buf.len = request->length;
+  }
+
+  request->length -= buf.len;
+  uvtls_write(&request->write_req, req->tls, &buf, 1, on_write);
 }
 
 void on_tcp_connect(uv_connect_t *req, int status) {
-  uvtls_t *tls = (uvtls_t *)req->data;
-  uvtls_connect_t *connect_req =
-      (uvtls_connect_t *)malloc(sizeof(uvtls_connect_t));
-  uvtls_connect(connect_req, tls, on_connect);
+  request_t *request = (request_t *)req->data;
+  uvtls_connect(&request->connect_req, request->tls, on_connect);
 }
 
 void on_alloc(uvtls_t *tls, size_t suggested_size, uv_buf_t *buf) {
@@ -100,8 +67,25 @@ void on_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
 }
 
 void on_write(uvtls_write_t *req, int status) {
-  uvtls_read_start(req->tls, on_alloc, on_read);
-  free(req);
+  // uvtls_read_start(req->tls, on_alloc, on_read);
+
+  request_t *request = (request_t *)req->data;
+
+  if (request->length == 0) {
+    uvtls_close(req->tls, on_close);
+    return;
+  }
+
+  uv_buf_t buf;
+  buf.base = request->data;
+  buf.len = 64 * 1024;
+
+  if (buf.len > request->length) {
+    buf.len = request->length;
+  }
+
+  request->length -= buf.len;
+  uvtls_write(&request->write_req, req->tls, &buf, 1, on_write);
 }
 
 static const char *cert =
@@ -157,34 +141,18 @@ static const char *key =
     "UI1Sl95I+hqh9u6RfI0n2IJm\n"
     "-----END PRIVATE KEY-----\n";
 
-void test_client_server() {
+int main() {
   uv_loop_t loop;
-  uv_tcp_t client, server;
-  uvtls_t tls_client, tls_server;
-  uvtls_context_t tls_context_client, tls_context_server;
+  uv_tcp_t client;
+  uvtls_t tls_client;
+  uvtls_context_t tls_context_client;
+  request_t request;
 
   uv_loop_init(&loop);
 
   struct sockaddr_in addr;
   uv_ip4_addr("127.0.0.1", 8888, &addr);
 
-  /* Server */
-  struct sockaddr_in bindaddr;
-  uv_ip4_addr("0.0.0.0", 8888, &bindaddr);
-
-  uv_tcp_init(&loop, &server);
-  uv_tcp_bind(&server, (const struct sockaddr *)&bindaddr, 0);
-
-  uvtls_context_init(&tls_context_server, UVTLS_CONTEXT_LIB_INIT);
-  uvtls_context_set_verify_flags(&tls_context_server, UVTLS_VERIFY_NONE);
-  uvtls_context_set_cert(&tls_context_server, cert, strlen(cert));
-  uvtls_context_set_private_key(&tls_context_server, key, strlen(key));
-
-  uvtls_init(&tls_server, &tls_context_server, (uv_stream_t *)&server);
-
-  uvtls_listen(&tls_server, 100, on_connection);
-
-  /* Client */
   uv_tcp_init(&loop, &client);
   uvtls_context_init(&tls_context_client, UVTLS_CONTEXT_LIB_INIT);
   uvtls_context_set_verify_flags(&tls_context_client, UVTLS_VERIFY_PEER_CERT);
@@ -193,80 +161,19 @@ void test_client_server() {
 
   uvtls_init(&tls_client, &tls_context_client, (uv_stream_t *)&client);
 
+  request.tls = &tls_client;
+  request.length = 1024 * 1024 * 1024;
+  request.write_req.data = &request;
+  request.connect_req.data = &request;
+
   uv_connect_t connect_req;
-  connect_req.data = &tls_client;
+  connect_req.data = &request;
   uv_tcp_connect(&connect_req, &client, (const struct sockaddr *)&addr,
                  on_tcp_connect);
 
   uv_run(&loop, UV_RUN_DEFAULT);
 
-  /* Cleanup */
   uvtls_context_destroy(&tls_context_client);
-  uvtls_context_destroy(&tls_context_server);
 
   uv_loop_close(&loop);
-}
-
-char *load_file(const char *filename) {
-  FILE *f = fopen(filename, "r");
-  if (!f) {
-    return NULL;
-  }
-
-  fseek(f, 0, SEEK_END);
-
-  long size = ftell(f);
-  assert(size >= 0 && "Negative value returned for file size");
-  char *contents = (char *)malloc((size_t)size + 1);
-
-  fseek(f, 0, SEEK_SET);
-  size_t nread = fread(contents, (size_t)size, 1, f);
-  assert(nread == 1 && "Unable to read contents of the file");
-
-  contents[size] = '\0';
-
-  return contents;
-}
-
-void test_client() {
-  uv_loop_t loop;
-  uv_tcp_t tcp;
-  uvtls_t tls;
-  uvtls_context_t tls_context;
-
-  struct sockaddr_in addr;
-  uv_ip4_addr("172.217.164.174", 443, &addr);
-
-  uv_loop_init(&loop);
-  uv_tcp_init(&loop, &tcp);
-
-  uvtls_context_init(&tls_context, UVTLS_CONTEXT_LIB_INIT);
-  uvtls_context_set_verify_flags(&tls_context, UVTLS_VERIFY_PEER_IDENT);
-
-  char *ca_certs = load_file("www-google-com-chain.pem");
-
-  uvtls_context_add_trusted_certs(&tls_context, ca_certs, strlen(ca_certs));
-
-  free(ca_certs);
-
-  uvtls_init(&tls, &tls_context, (uv_stream_t *)&tcp);
-
-  uvtls_set_hostname(&tls, "google.com", strlen("google.com"));
-
-  uv_connect_t connect_req;
-  connect_req.data = &tls;
-  uv_tcp_connect(&connect_req, &tcp, (const struct sockaddr *)&addr,
-                 on_tcp_connect);
-
-  uv_run(&loop, UV_RUN_DEFAULT);
-
-  uv_loop_close(&loop);
-
-  uvtls_context_destroy(&tls_context);
-}
-
-int main() {
-  test_client();
-  test_client_server();
-  return 0;
 }
