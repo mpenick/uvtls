@@ -15,18 +15,11 @@
 
 #include "curl-hostcheck.h"
 
-#if defined(OPENSSL_VERSION_NUMBER) && !defined(LIBRESSL_VERSION_NUMBER)
-#if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
+#if (OPENSSL_VERSION_NUMBER >= 0x10100000L ||                                  \
+     LIBRESSL_VERSION_NUMBER >= 0x20302000L)
 #define UVTLS_METHOD TLS_method
 #else
 #define UVTLS_METHOD SSLv23_method
-#endif
-#else
-#if (LIBRESSL_VERSION_NUMBER >= 0x20302000L)
-#define UVTLS_METHOD TLS_method
-#else
-#define UVTLS_METHOD SSLv23_method
-#endif
 #endif
 
 #define UVTLS_SUGGESTED_READ_SIZE UVTLS_RING_BUF_BLOCK_SIZE
@@ -40,7 +33,7 @@
     }                                                                          \
   } while (0);
 
-static void info_callback(const SSL *ssl, int where, int ret) {
+static void debug_info_callback(const SSL *ssl, int where, int ret) {
   if (ret == 0) {
     fprintf(stderr, "info_callback, error occurred.\n");
     return;
@@ -457,8 +450,7 @@ static int verify(uvtls_t *tls) {
     goto error;
   }
 
-  if (verify_flags & UVTLS_VERIFY_PEER_CERT ||
-      verify_flags & UVTLS_VERIFY_PEER_IDENT) {
+  if (verify_flags & UVTLS_VERIFY_PEER_CERT) {
     long rc = SSL_get_verify_result(session->ssl);
     if (rc != X509_V_OK) {
       result = UVTLS_EBADPEERCERT;
@@ -556,16 +548,28 @@ static void on_handshake_accept_read(uv_stream_t *stream, ssize_t nread,
 
 static void do_read(uvtls_t *tls) {
   uvtls_session_t *session = (uvtls_session_t *)tls->impl;
-  while (uvtls_ring_buf_size(&tls->incoming) > 0 && tls->read_cb) {
-    uv_buf_t buf = uv_buf_init(NULL, 0);
-    tls->alloc_cb(tls, UVTLS_SUGGESTED_READ_SIZE, &buf);
-    if (buf.base == NULL || buf.len == 0) {
-      tls->read_cb(tls, UV_ENOBUFS, &buf);
-      return;
+  while (tls->read_cb) {
+    uv_buf_t *buf = &tls->alloc_buf;
+    if (buf->base == NULL) {
+      tls->alloc_cb(tls, UVTLS_SUGGESTED_READ_SIZE, buf);
+      if (buf->base == NULL || buf->len == 0) {
+        tls->read_cb(tls, UV_ENOBUFS, buf);
+        return;
+      }
+      assert(buf->len <= INT_MAX && "Allocate read buf is too big");
     }
-    assert(buf.len <= INT_MAX && "Allocate read buf is too big");
-    ssize_t nread = SSL_read(session->ssl, buf.base, (int)buf.len);
-    tls->read_cb(tls, nread, &buf);
+    int nread = SSL_read(session->ssl, buf->base, (int)buf->len);
+    if (nread < 0) {
+      int error = SSL_get_error(session->ssl, nread);
+      if (error == SSL_ERROR_WANT_READ) {
+        break;
+      } else {
+        tls->read_cb(tls, UVTLS_EREAD, buf);
+        return;
+      }
+    }
+    tls->read_cb(tls, nread, buf);
+    *buf = uv_buf_init(NULL, 0);
   }
 }
 
@@ -589,6 +593,17 @@ static void on_write(uv_write_t *req, int status) {
   write_req->cb(write_req, status);
 }
 
+static void on_close(uv_handle_t *handle) {
+  uvtls_t *tls = (uvtls_t *)handle->data;
+  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
+  SSL_CTX_free(SSL_get_SSL_CTX(session->ssl));
+  SSL_free(session->ssl);
+  free(session);
+  if (tls->close_cb) {
+    tls->close_cb(tls);
+  }
+}
+
 int uvtls_context_init(uvtls_context_t *context, int flags) {
   if (flags & UVTLS_CONTEXT_LIB_INIT) {
     uv_once(&lib_init_guard__, lib_init);
@@ -603,7 +618,7 @@ int uvtls_context_init(uvtls_context_t *context, int flags) {
   context->verify_flags = UVTLS_VERIFY_PEER_CERT;
 
   if (flags & UVTLS_CONTEXT_DEBUG) {
-    SSL_CTX_set_info_callback(ssl_ctx, info_callback);
+    SSL_CTX_set_info_callback(ssl_ctx, debug_info_callback);
   }
 
   SSL_CTX_set_ecdh_auto(ssl_ctx, 1);
@@ -611,7 +626,7 @@ int uvtls_context_init(uvtls_context_t *context, int flags) {
   return 0;
 }
 
-void uvtls_context_close(uvtls_context_t *context) {
+void uvtls_context_destroy(uvtls_context_t *context) {
   SSL_CTX_free((SSL_CTX *)context->impl);
 }
 
@@ -673,10 +688,12 @@ int uvtls_init(uvtls_t *tls, uvtls_context_t *context, uv_stream_t *stream) {
   tls->context = context;
   tls->hostname[0] = '\0';
   tls->alloc_cb = NULL;
+  tls->alloc_buf = uv_buf_init(NULL, 0);
   tls->read_cb = NULL;
   tls->connect_req = NULL;
   tls->connection_cb = NULL;
   tls->commit_pos = (uvtls_ring_buf_pos_t){.block = NULL, .index = 0};
+  tls->close_cb = NULL;
 
   int rc = uvtls_ring_buf_init(&tls->incoming);
   if (rc != 0) {
@@ -701,15 +718,6 @@ error:
   uvtls_ring_buf_destroy(&tls->incoming);
   uvtls_ring_buf_destroy(&tls->outgoing);
   return rc;
-}
-
-void uvtls_close(uvtls_t *tls) {
-  uvtls_read_stop(tls);
-
-  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
-  SSL_CTX_free(SSL_get_SSL_CTX(session->ssl));
-  SSL_free(session->ssl);
-  free(session);
 }
 
 int uvtls_set_hostname(uvtls_t *tls, const char *hostname, size_t length) {
@@ -746,6 +754,16 @@ int uvtls_connect(uvtls_connect_t *req, uvtls_t *tls, uvtls_connect_cb cb) {
   }
 
   return uv_read_start(tls->stream, on_alloc, on_handshake_connect_read);
+}
+
+int uvtls_is_closing(uvtls_t *tls) {
+  return uv_is_closing((uv_handle_t *)tls->stream);
+}
+
+void uvtls_close(uvtls_t *tls, uvtls_close_cb cb) {
+  tls->close_cb = cb;
+  tls->stream->data = tls;
+  uv_close((uv_handle_t *)tls->stream, on_close);
 }
 
 static void on_connection(uv_stream_t *server, int status) {
