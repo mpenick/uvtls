@@ -4,10 +4,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-static uvtls_ring_buf_pos_t pos_init(uvtls_ring_buf_block_t *block, int index) {
+uvtls_ring_buf_pos_t uvtls_ring_buf_pos_init(int index,
+                                             uvtls_ring_buf_block_t *block) {
   uvtls_ring_buf_pos_t pos;
-  pos.block = block;
   pos.index = index;
+  pos.block = block;
   return pos;
 }
 
@@ -55,7 +56,7 @@ int uvtls_ring_buf_init(uvtls_ring_buf_t *rb) {
     return UV_ENOMEM;
   }
   rb->empty_blocks = NULL;
-  rb->head = rb->tail = (uvtls_ring_buf_pos_t){.index = 0, .block = block};
+  rb->head = rb->tail = uvtls_ring_buf_pos_init(0, block);
   rb->size = 0;
   rb->ret = -1;
   return 0;
@@ -77,14 +78,14 @@ void uvtls_ring_buf_reset(uvtls_ring_buf_t *rb) {
 }
 
 void uvtls_ring_buf_write(uvtls_ring_buf_t *rb, const char *data, int size) {
-  assert(rb->tail.block && "Tail block should never be NULL");
   const char *pos = data;
   int remaining = size;
+  assert(rb->tail.block && "Tail block should never be NULL");
 
   while (remaining > 0) {
+    int to_copy = UVTLS_RING_BUF_BLOCK_SIZE - rb->tail.index;
     assert(rb->tail.index <= UVTLS_RING_BUF_BLOCK_SIZE &&
            "Tail index should always be less than or equal to block size");
-    int to_copy = UVTLS_RING_BUF_BLOCK_SIZE - rb->tail.index;
 
     if (to_copy == 0) {
       push_tail_block(rb);
@@ -105,10 +106,10 @@ void uvtls_ring_buf_write(uvtls_ring_buf_t *rb, const char *data, int size) {
 }
 
 int uvtls_ring_buf_tail_block(uvtls_ring_buf_t *rb, char **data, int size) {
+  int available = UVTLS_RING_BUF_BLOCK_SIZE - rb->tail.index;
   assert(rb->tail.block && "Tail block should never be NULL");
   assert(rb->tail.index <= UVTLS_RING_BUF_BLOCK_SIZE &&
          "Tail index should always be less than or equal to block size");
-  int available = UVTLS_RING_BUF_BLOCK_SIZE - rb->tail.index;
 
   if (available == 0) {
     push_tail_block(rb);
@@ -121,9 +122,9 @@ int uvtls_ring_buf_tail_block(uvtls_ring_buf_t *rb, char **data, int size) {
 }
 
 void uvtls_ring_buf_tail_block_commit(uvtls_ring_buf_t *rb, int size) {
-  assert(rb->tail.block && "Tail block should never be NULL");
   int available = UVTLS_RING_BUF_BLOCK_SIZE - rb->tail.index;
   int to_commit = size;
+  assert(rb->tail.block && "Tail block should never be NULL");
   if (to_commit > available) {
     to_commit = available;
   }
@@ -134,10 +135,10 @@ void uvtls_ring_buf_tail_block_commit(uvtls_ring_buf_t *rb, int size) {
 }
 
 int uvtls_ring_buf_read(uvtls_ring_buf_t *rb, char *data, int len) {
-  assert(rb->head.block && "Head block should never be NULL");
   int initial_size = rb->size;
   char *pos = data;
   int remaining = len;
+  assert(rb->head.block && "Head block should never be NULL");
 
   while (remaining > 0) {
     const char *block_pos = rb->head.block->data + rb->head.index;
@@ -181,17 +182,16 @@ uvtls_ring_buf_pos_t uvtls_ring_buf_head_blocks(const uvtls_ring_buf_t *rb,
                                                 uvtls_ring_buf_pos_t pos,
                                                 uv_buf_t *bufs,
                                                 int *bufs_count) {
-  assert(pos.block && "Position block should never be NULL");
-
   uvtls_ring_buf_pos_t current = pos;
   int count = 0;
+  assert(pos.block && "Position block should never be NULL");
 
   while (count < *bufs_count) {
     uv_buf_t *buf = bufs + count;
     if (current.block == rb->tail.block) {
+      int len = rb->tail.index - current.index;
       assert(rb->tail.index >= current.index &&
              "Tail index should always be greater than or equal to head index");
-      int len = rb->tail.index - current.index;
       if (len != 0) {
         buf->len = (size_t)len;
         buf->base = current.block->data + current.index;
@@ -207,7 +207,7 @@ uvtls_ring_buf_pos_t uvtls_ring_buf_head_blocks(const uvtls_ring_buf_t *rb,
         count++;
       }
     }
-    current = pos_init(current.block->next, 0);
+    current = uvtls_ring_buf_pos_init(0, current.block->next);
   }
   *bufs_count = count;
   return current;

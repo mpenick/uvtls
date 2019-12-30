@@ -27,6 +27,9 @@ struct uvtls_ring_buf_block_s {
   uvtls_ring_buf_block_t *next;
 };
 
+uvtls_ring_buf_pos_t uvtls_ring_buf_pos_init(int index,
+                                             uvtls_ring_buf_block_t *block);
+
 int uvtls_ring_buf_init(uvtls_ring_buf_t *rb);
 
 void uvtls_ring_buf_destroy(uvtls_ring_buf_t *rb);

@@ -81,8 +81,8 @@ struct client_s {
 void do_write(client_t *client);
 
 void on_server_client_close(uvtls_t *tls) {
-  printf("server client close\n");
   client_t *client = (client_t *)tls->data;
+  printf("server client close\n");
   if (client->start > 0) {
     uint64_t delta = uv_hrtime() - client->start;
     double elapsed = (double)delta / (1e9);
@@ -119,6 +119,8 @@ void do_write(client_t *client) {
 
 void on_server_client_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
   client_t *client = (client_t *)tls->data;
+  const char *pos = buf->base;
+  const char *end = buf->base + nread;
 
   if (nread < 0) {
     if (nread != UV_EOF && nread != UV_ECONNRESET) {
@@ -127,9 +129,6 @@ void on_server_client_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
     uvtls_close(tls, on_server_client_close);
     return;
   }
-
-  const char *pos = buf->base;
-  const char *end = buf->base + nread;
 
   while (pos != end) {
     size_t nbytes;
@@ -205,13 +204,14 @@ void on_accept(uvtls_t *client, int status) {
 }
 
 static int client_init(uvtls_t *server, client_t *client) {
+  int rc;
   client->tls.data = client;
   client->start = 0;
   client->state = OPCODE;
   client->opcode = UNKNOWN;
   client->temp_size = client->length = 0;
 
-  int rc = uv_tcp_init(server->stream->loop, &client->tcp);
+  rc = uv_tcp_init(server->stream->loop, &client->tcp);
   if (rc != 0) {
     return rc;
   }
@@ -238,6 +238,7 @@ void on_connection(uvtls_t *server, int status) {
 }
 
 int main() {
+  struct sockaddr_in bindaddr;
   uv_loop_t loop;
   uv_tcp_t server;
   uvtls_t tls_server;
@@ -246,7 +247,6 @@ int main() {
   uv_loop_init(&loop);
 
   /* Server */
-  struct sockaddr_in bindaddr;
   uv_ip4_addr("0.0.0.0", 8888, &bindaddr);
 
   uv_tcp_init(&loop, &server);
