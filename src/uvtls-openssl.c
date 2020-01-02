@@ -1,3 +1,6 @@
+#include "curl-hostcheck.h"
+#include "ring-buf.h"
+
 #include <uvtls.h>
 
 #include <assert.h>
@@ -13,9 +16,7 @@
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
 
-#include "curl-hostcheck.h"
-
-#if (OPENSSL_VERSION_NUMBER >= 0x10100000L ||                                  \
+#if (OPENSSL_VERSION_NUMBER >= 0x10100000L || \
      LIBRESSL_VERSION_NUMBER >= 0x20302000L)
 #define UVTLS_METHOD TLS_method
 #else
@@ -25,15 +26,18 @@
 #define UVTLS_SUGGESTED_READ_SIZE UVTLS_RING_BUF_BLOCK_SIZE
 #define UVTLS_STACK_BUFS_COUNT 16
 
-#define PRINT_INFO(ssl, w, flag, msg)                                          \
-  do {                                                                         \
-    if (w & flag) {                                                            \
-      fprintf(stderr, "%s - %s - %s\n", msg, SSL_state_string(ssl),            \
-              SSL_state_string_long(ssl));                                     \
-    }                                                                          \
+#define PRINT_INFO(ssl, w, flag, msg)      \
+  do {                                     \
+    if (w & flag) {                        \
+      fprintf(stderr,                      \
+              "%s - %s - %s\n",            \
+              msg,                         \
+              SSL_state_string(ssl),       \
+              SSL_state_string_long(ssl)); \
+    }                                      \
   } while (0);
 
-static void debug_info_callback(const SSL *ssl, int where, int ret) {
+static void debug_info_callback(const SSL* ssl, int where, int ret) {
   if (ret == 0) {
     fprintf(stderr, "info_callback, error occurred.\n");
     return;
@@ -71,22 +75,27 @@ static void lib_init() {
   atexit(lib_cleanup);
 }
 
-static int ring_buf_bio_create(BIO *bio);
-static int ring_buf_bio_destroy(BIO *bio);
-static int ring_buf_bio_read(BIO *bio, char *out, int len);
-static int ring_buf_bio_write(BIO *bio, const char *data, int len);
-static int ring_buf_bio_puts(BIO *bio, const char *str);
-static int ring_buf_bio_gets(BIO *bio, char *out, int size);
-static long ring_buf_bio_ctrl(BIO *bio, int cmd, long num, void *ptr);
+static int ring_buf_bio_create(BIO* bio);
+static int ring_buf_bio_destroy(BIO* bio);
+static int ring_buf_bio_read(BIO* bio, char* out, int len);
+static int ring_buf_bio_write(BIO* bio, const char* data, int len);
+static int ring_buf_bio_puts(BIO* bio, const char* str);
+static int ring_buf_bio_gets(BIO* bio, char* out, int size);
+static long ring_buf_bio_ctrl(BIO* bio, int cmd, long num, void* ptr);
 
 #if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
-const BIO_METHOD method__ = {BIO_TYPE_MEM,         "Ring Buffer",
-                             ring_buf_bio_write,   ring_buf_bio_read,
-                             ring_buf_bio_puts,    ring_buf_bio_gets,
-                             ring_buf_bio_ctrl,    ring_buf_bio_create,
-                             ring_buf_bio_destroy, NULL};
+const BIO_METHOD method__ = {BIO_TYPE_MEM,
+                             "Ring Buffer",
+                             ring_buf_bio_write,
+                             ring_buf_bio_read,
+                             ring_buf_bio_puts,
+                             ring_buf_bio_gets,
+                             ring_buf_bio_ctrl,
+                             ring_buf_bio_create,
+                             ring_buf_bio_destroy,
+                             NULL};
 #else
-static BIO_METHOD *method__ = NULL;
+static BIO_METHOD* method__ = NULL;
 void ring_buf_bio_init() {
   method__ = BIO_meth_new(BIO_TYPE_MEM, "ring buf");
   if (method__) {
@@ -107,19 +116,19 @@ static void ring_buf_bio_init_once() {
   uv_once(&ring_buf_init_guard__, ring_buf_bio_init);
 }
 
-uvtls_ring_buf_t *ring_buf_from_bio(BIO *bio) {
-  void *data = BIO_get_data(bio);
+uvtls_ring_buf_t* ring_buf_from_bio(BIO* bio) {
+  void* data = BIO_get_data(bio);
   assert(data && "BIO data field should not be NULL");
-  return (uvtls_ring_buf_t *)data;
+  return (uvtls_ring_buf_t*) data;
 }
 
-int ring_buf_bio_create(BIO *bio) {
+int ring_buf_bio_create(BIO* bio) {
   BIO_set_shutdown(bio, 1);
   BIO_set_init(bio, 1);
   return 1;
 }
 
-int ring_buf_bio_destroy(BIO *bio) {
+int ring_buf_bio_destroy(BIO* bio) {
   if (bio == NULL) {
     return 0;
   }
@@ -127,9 +136,9 @@ int ring_buf_bio_destroy(BIO *bio) {
   return 1;
 }
 
-int ring_buf_bio_read(BIO *bio, char *out, int len) {
+int ring_buf_bio_read(BIO* bio, char* out, int len) {
   int bytes;
-  uvtls_ring_buf_t *rb;
+  uvtls_ring_buf_t* rb;
   BIO_clear_retry_flags(bio);
 
   rb = ring_buf_from_bio(bio);
@@ -137,7 +146,7 @@ int ring_buf_bio_read(BIO *bio, char *out, int len) {
 
   if (bytes == 0) {
     assert(rb->ret <= INT_MAX && "Value is too big for ring buffer BIO read");
-    bytes = (int)rb->ret;
+    bytes = (int) rb->ret;
     if (bytes != 0) {
       BIO_set_retry_read(bio);
     }
@@ -146,90 +155,94 @@ int ring_buf_bio_read(BIO *bio, char *out, int len) {
   return bytes;
 }
 
-int ring_buf_bio_write(BIO *bio, const char *data, int len) {
+int ring_buf_bio_write(BIO* bio, const char* data, int len) {
   BIO_clear_retry_flags(bio);
   uvtls_ring_buf_write(ring_buf_from_bio(bio), data, len);
   return len;
 }
 
-int ring_buf_bio_puts(BIO *bio, const char *str) { abort(); }
+int ring_buf_bio_puts(BIO* bio, const char* str) {
+  abort();
+}
 
-int ring_buf_bio_gets(BIO *bio, char *out, int size) { abort(); }
+int ring_buf_bio_gets(BIO* bio, char* out, int size) {
+  abort();
+}
 
-long ring_buf_bio_ctrl(BIO *bio, int cmd, long num, void *ptr) {
+long ring_buf_bio_ctrl(BIO* bio, int cmd, long num, void* ptr) {
   long ret = 1;
 
-  uvtls_ring_buf_t *rb = ring_buf_from_bio(bio);
+  uvtls_ring_buf_t* rb = ring_buf_from_bio(bio);
 
   switch (cmd) {
-  case BIO_CTRL_RESET:
-    uvtls_ring_buf_reset(rb);
-    break;
-  case BIO_CTRL_EOF:
-    ret = (uvtls_ring_buf_size(rb) == 0);
-    break;
-  case BIO_C_SET_BUF_MEM_EOF_RETURN:
-    rb->ret = num;
-    break;
-  case BIO_CTRL_INFO:
-    ret = uvtls_ring_buf_size(rb);
-    if (ptr != NULL) {
-      *(void **)ptr = NULL;
-    }
-    break;
-  case BIO_C_SET_BUF_MEM:
-    assert(0 && "Can't use SET_BUF_MEM with ring buf BIO");
-    abort();
-    break;
-  case BIO_C_GET_BUF_MEM_PTR:
-    assert(0 && "Can't use GET_BUF_MEM_PTR with ring buf BIO");
-    ret = 0;
-    break;
-  case BIO_CTRL_GET_CLOSE:
-    ret = BIO_get_shutdown(bio);
-    break;
-  case BIO_CTRL_SET_CLOSE:
-    assert(num <= INT_MAX && num >= INT_MIN &&
-           "BIO ctrl value is too big or too small");
-    BIO_set_shutdown(bio, (int)num);
-    break;
-  case BIO_CTRL_WPENDING:
-    ret = 0;
-    break;
-  case BIO_CTRL_PENDING:
-    ret = uvtls_ring_buf_size(rb);
-    break;
-  case BIO_CTRL_DUP:
-  case BIO_CTRL_FLUSH:
-    ret = 1;
-    break;
-  case BIO_CTRL_PUSH:
-  case BIO_CTRL_POP:
-  default:
-    ret = 0;
-    break;
+    case BIO_CTRL_RESET:
+      uvtls_ring_buf_reset(rb);
+      break;
+    case BIO_CTRL_EOF:
+      ret = (uvtls_ring_buf_size(rb) == 0);
+      break;
+    case BIO_C_SET_BUF_MEM_EOF_RETURN:
+      rb->ret = num;
+      break;
+    case BIO_CTRL_INFO:
+      ret = uvtls_ring_buf_size(rb);
+      if (ptr != NULL) {
+        *(void**) ptr = NULL;
+      }
+      break;
+    case BIO_C_SET_BUF_MEM:
+      assert(0 && "Can't use SET_BUF_MEM with ring buf BIO");
+      abort();
+      break;
+    case BIO_C_GET_BUF_MEM_PTR:
+      assert(0 && "Can't use GET_BUF_MEM_PTR with ring buf BIO");
+      ret = 0;
+      break;
+    case BIO_CTRL_GET_CLOSE:
+      ret = BIO_get_shutdown(bio);
+      break;
+    case BIO_CTRL_SET_CLOSE:
+      assert(num <= INT_MAX && num >= INT_MIN &&
+             "BIO ctrl value is too big or too small");
+      BIO_set_shutdown(bio, (int) num);
+      break;
+    case BIO_CTRL_WPENDING:
+      ret = 0;
+      break;
+    case BIO_CTRL_PENDING:
+      ret = uvtls_ring_buf_size(rb);
+      break;
+    case BIO_CTRL_DUP:
+    case BIO_CTRL_FLUSH:
+      ret = 1;
+      break;
+    case BIO_CTRL_PUSH:
+    case BIO_CTRL_POP:
+    default:
+      ret = 0;
+      break;
   }
   return ret;
 }
 
-BIO *create_bio(uvtls_ring_buf_t *rb) {
+BIO* create_bio(uvtls_ring_buf_t* rb) {
 #if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
-  BIO *bio = BIO_new(const_cast<BIO_METHOD *>(&method_));
+  BIO* bio = BIO_new(const_cast<BIO_METHOD*>(&method_));
 #else
-  BIO *bio = BIO_new(method__);
+  BIO* bio = BIO_new(method__);
 #endif
   BIO_set_data(bio, rb);
   return bio;
 }
 
-static X509 *load_cert(const char *cert, size_t length) {
-  BIO *bio;
-  X509 *x509;
+static X509* load_cert(const char* cert, size_t length) {
+  BIO* bio;
+  X509* x509;
   if (length > INT_MAX) {
     return NULL;
   }
 
-  bio = BIO_new_mem_buf(cert, (int)length);
+  bio = BIO_new_mem_buf(cert, (int) length);
   if (bio == NULL) {
     return NULL;
   }
@@ -244,13 +257,13 @@ static X509 *load_cert(const char *cert, size_t length) {
   return x509;
 }
 
-static EVP_PKEY *load_key(const char *key, size_t length) {
-  BIO *bio;
-  EVP_PKEY *pkey;
+static EVP_PKEY* load_key(const char* key, size_t length) {
+  BIO* bio;
+  EVP_PKEY* pkey;
   if (length > INT_MAX) {
     return NULL;
   }
-  bio = BIO_new_mem_buf(key, (int)length);
+  bio = BIO_new_mem_buf(key, (int) length);
   if (bio == NULL) {
     return NULL;
   }
@@ -268,16 +281,17 @@ static EVP_PKEY *load_key(const char *key, size_t length) {
 typedef struct uvtls_session_s uvtls_session_t;
 
 struct uvtls_session_s {
-  SSL *ssl;
-  BIO *incoming_bio;
-  BIO *outgoing_bio;
+  SSL* ssl;
+  BIO* incoming_bio;
+  BIO* outgoing_bio;
 };
 
-static uvtls_session_t *uvtls_session_create(SSL_CTX *ssl_ctx,
-                                             uvtls_ring_buf_t *incoming,
-                                             uvtls_ring_buf_t *outgoing) {
+static uvtls_session_t* uvtls_session_create(SSL_CTX* ssl_ctx,
+                                             uvtls_ring_buf_t* incoming,
+                                             uvtls_ring_buf_t* outgoing) {
   /* FIXME: OOM */
-  uvtls_session_t *session = (uvtls_session_t *)malloc(sizeof(uvtls_session_t));
+  uvtls_session_t* session =
+      (uvtls_session_t*) malloc(sizeof(uvtls_session_t));
 
   SSL_CTX_up_ref(ssl_ctx);
 
@@ -290,10 +304,10 @@ static uvtls_session_t *uvtls_session_create(SSL_CTX *ssl_ctx,
   return session;
 }
 
-static void on_handshake_write(uv_write_t *req, int status);
+static void on_handshake_write(uv_write_t* req, int status);
 
 static void ssl_print_error() {
-  const char *data;
+  const char* data;
   int flags;
   unsigned long err;
   while ((err = ERR_get_error_line_data(NULL, NULL, &data, &flags)) != 0) {
@@ -303,19 +317,22 @@ static void ssl_print_error() {
   }
 }
 
-static int do_write(uv_write_t *req, uvtls_t *tls,
-                    uvtls_ring_buf_pos_t start_pos, int start_size,
-                    uvtls_ring_buf_pos_t *commit_pos, uv_write_cb cb) {
+static int do_write(uv_write_t* req,
+                    uvtls_t* tls,
+                    uvtls_ring_buf_pos_t start_pos,
+                    int start_size,
+                    uvtls_ring_buf_pos_t* commit_pos,
+                    uv_write_cb cb) {
   uv_buf_t stack_bufs[UVTLS_STACK_BUFS_COUNT];
 
   int rc;
   int bufs_count;
-  uv_buf_t *bufs;
+  uv_buf_t* bufs;
 
   int size = uvtls_ring_buf_size(&tls->outgoing) - start_size;
   if (size > UVTLS_STACK_BUFS_COUNT * UVTLS_RING_BUF_BLOCK_SIZE) {
     bufs_count = size / UVTLS_RING_BUF_BLOCK_SIZE;
-    bufs = (uv_buf_t *)malloc(sizeof(uv_buf_t) * (unsigned int)bufs_count);
+    bufs = (uv_buf_t*) malloc(sizeof(uv_buf_t) * (unsigned int) bufs_count);
     if (!bufs) {
       return UV_ENOMEM;
     }
@@ -326,8 +343,8 @@ static int do_write(uv_write_t *req, uvtls_t *tls,
 
   *commit_pos =
       uvtls_ring_buf_head_blocks(&tls->outgoing, start_pos, bufs, &bufs_count);
-  rc = uv_write(req, (uv_stream_t *)tls->stream, bufs, (unsigned int)bufs_count,
-                cb);
+  rc = uv_write(
+      req, (uv_stream_t*) tls->stream, bufs, (unsigned int) bufs_count, cb);
 
   if (bufs != stack_bufs) {
     free(bufs);
@@ -336,8 +353,8 @@ static int do_write(uv_write_t *req, uvtls_t *tls,
   return rc;
 }
 
-static int do_handshake(uvtls_t *tls) {
-  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
+static int do_handshake(uvtls_t* tls) {
+  uvtls_session_t* session = (uvtls_session_t*) tls->impl;
 
   uvtls_ring_buf_pos_t start_pos = tls->outgoing.tail;
   int start_size = uvtls_ring_buf_size(&tls->outgoing);
@@ -352,14 +369,14 @@ static int do_handshake(uvtls_t *tls) {
   }
 
   if (uvtls_ring_buf_size(&tls->outgoing) - start_size > 0) {
-    uv_write_t *req = (uv_write_t *)malloc(sizeof(uv_write_t));
+    uv_write_t* req = (uv_write_t*) malloc(sizeof(uv_write_t));
     if (!req) {
       return UV_ENOMEM;
     }
     req->data = tls;
 
-    return do_write(req, tls, start_pos, start_size, &tls->commit_pos,
-                    on_handshake_write);
+    return do_write(
+        req, tls, start_pos, start_size, &tls->commit_pos, on_handshake_write);
   }
 
   return 0;
@@ -367,27 +384,27 @@ static int do_handshake(uvtls_t *tls) {
 
 typedef enum { MATCH, NO_MATCH, BAD_CERT, NO_SAN_PRESENT } match_t;
 
-static match_t match_san(X509 *peer_cert, const char *hostname) {
+static match_t match_san(X509* peer_cert, const char* hostname) {
   int i;
   match_t result = NO_MATCH;
-  STACK_OF(GENERAL_NAME) *names = (STACK_OF(GENERAL_NAME) *)(X509_get_ext_d2i(
+  STACK_OF(GENERAL_NAME)* names = (STACK_OF(GENERAL_NAME)*) (X509_get_ext_d2i(
       peer_cert, NID_subject_alt_name, NULL, NULL));
   if (names == NULL) {
     return NO_SAN_PRESENT;
   }
 
   for (i = 0; i < sk_GENERAL_NAME_num(names); ++i) {
-    GENERAL_NAME *name = sk_GENERAL_NAME_value(names, i);
+    GENERAL_NAME* name = sk_GENERAL_NAME_value(names, i);
 
     if (name->type == GEN_DNS) {
-      const char *common_name;
-      ASN1_STRING *str = name->d.dNSName;
+      const char* common_name;
+      ASN1_STRING* str = name->d.dNSName;
       if (str == NULL) {
         result = BAD_CERT;
         break;
       }
 
-      common_name = (const char *)(ASN1_STRING_get0_data(str));
+      common_name = (const char*) (ASN1_STRING_get0_data(str));
       if (strlen(common_name) != (size_t)(ASN1_STRING_length(str))) {
         result = BAD_CERT;
         break;
@@ -404,17 +421,17 @@ static match_t match_san(X509 *peer_cert, const char *hostname) {
   return result;
 }
 
-static match_t match_common_name(X509 *peer_cert, const char *hostname) {
+static match_t match_common_name(X509* peer_cert, const char* hostname) {
   int i = -1;
-  X509_NAME *name = X509_get_subject_name(peer_cert);
+  X509_NAME* name = X509_get_subject_name(peer_cert);
   if (name == NULL) {
     return BAD_CERT;
   }
 
   while ((i = X509_NAME_get_index_by_NID(name, NID_commonName, i)) >= 0) {
-    ASN1_STRING *str;
-    const char *common_name;
-    X509_NAME_ENTRY *name_entry = X509_NAME_get_entry(name, i);
+    ASN1_STRING* str;
+    const char* common_name;
+    X509_NAME_ENTRY* name_entry = X509_NAME_get_entry(name, i);
     if (name_entry == NULL) {
       return BAD_CERT;
     }
@@ -424,7 +441,7 @@ static match_t match_common_name(X509 *peer_cert, const char *hostname) {
       return BAD_CERT;
     }
 
-    common_name = (const char *)(ASN1_STRING_get0_data(str));
+    common_name = (const char*) (ASN1_STRING_get0_data(str));
     if (strlen(common_name) != (size_t)(ASN1_STRING_length(str))) {
       return BAD_CERT;
     }
@@ -437,7 +454,7 @@ static match_t match_common_name(X509 *peer_cert, const char *hostname) {
   return NO_MATCH;
 }
 
-static match_t match(X509 *peer_cert, const char *hostname) {
+static match_t match(X509* peer_cert, const char* hostname) {
   match_t result = match_san(peer_cert, hostname);
   if (result == NO_SAN_PRESENT) {
     result = match_common_name(peer_cert, hostname);
@@ -445,16 +462,16 @@ static match_t match(X509 *peer_cert, const char *hostname) {
   return result;
 }
 
-static int verify(uvtls_t *tls) {
+static int verify(uvtls_t* tls) {
   int result = UVTLS_UNKNOWN;
-  uvtls_session_t *session;
-  X509 *peer_cert;
+  uvtls_session_t* session;
+  X509* peer_cert;
   int verify_flags = tls->context->verify_flags;
   if (!verify_flags) {
     return 0;
   }
 
-  session = (uvtls_session_t *)tls->impl;
+  session = (uvtls_session_t*) tls->impl;
 
   peer_cert = SSL_get_peer_certificate(session->ssl);
   if (peer_cert == NULL) {
@@ -472,18 +489,18 @@ static int verify(uvtls_t *tls) {
 
   if (verify_flags & UVTLS_VERIFY_PEER_IDENT) {
     switch (match(peer_cert, tls->hostname)) {
-    case MATCH:
-      /* Success */
-      break;
-    case NO_MATCH:
-      result = UVTLS_EBADPEERIDENT;
-      goto error;
-    case BAD_CERT:
-      result = UVTLS_EBADPEERCERT;
-      goto error;
-    default:
-      result = UVTLS_UNKNOWN;
-      goto error;
+      case MATCH:
+        /* Success */
+        break;
+      case NO_MATCH:
+        result = UVTLS_EBADPEERIDENT;
+        goto error;
+      case BAD_CERT:
+        result = UVTLS_EBADPEERCERT;
+        goto error;
+      default:
+        result = UVTLS_UNKNOWN;
+        goto error;
     }
   }
 
@@ -495,33 +512,35 @@ error:
   return result;
 }
 
-static void on_alloc(uv_handle_t *handle, size_t suggested_size,
-                     uv_buf_t *buf) {
-  uvtls_t *tls = (uvtls_t *)handle->data;
-  buf->len = (size_t)uvtls_ring_buf_tail_block(&tls->incoming, &buf->base,
-                                               (int)suggested_size);
+static void on_alloc(uv_handle_t* handle,
+                     size_t suggested_size,
+                     uv_buf_t* buf) {
+  uvtls_t* tls = (uvtls_t*) handle->data;
+  buf->len = (size_t) uvtls_ring_buf_tail_block(
+      &tls->incoming, &buf->base, (int) suggested_size);
 }
 
-static void on_handshake_write(uv_write_t *req, int status) {
-  uvtls_t *tls = (uvtls_t *)req->data;
+static void on_handshake_write(uv_write_t* req, int status) {
+  uvtls_t* tls = (uvtls_t*) req->data;
   uvtls_ring_buf_head_blocks_commit(&tls->outgoing, tls->commit_pos);
   free(req);
 }
 
-static void on_handshake_connect_read(uv_stream_t *stream, ssize_t nread,
-                                      const uv_buf_t *buf) {
+static void on_handshake_connect_read(uv_stream_t* stream,
+                                      ssize_t nread,
+                                      const uv_buf_t* buf) {
   int rc;
-  uvtls_t *tls = (uvtls_t *)stream->data;
-  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
+  uvtls_t* tls = (uvtls_t*) stream->data;
+  uvtls_session_t* session = (uvtls_session_t*) tls->impl;
 
   if ((nread == UV_EOF && !SSL_is_init_finished(session->ssl)) ||
       (nread != UV_EOF && nread < 0)) {
     uv_read_stop(stream);
-    tls->connect_req->cb(tls->connect_req, (int)nread);
+    tls->connect_req->cb(tls->connect_req, (int) nread);
     return;
   }
 
-  uvtls_ring_buf_tail_block_commit(&tls->incoming, (int)nread);
+  uvtls_ring_buf_tail_block_commit(&tls->incoming, (int) nread);
 
   rc = do_handshake(tls);
   if (rc != 0) {
@@ -533,20 +552,21 @@ static void on_handshake_connect_read(uv_stream_t *stream, ssize_t nread,
   }
 }
 
-static void on_handshake_accept_read(uv_stream_t *stream, ssize_t nread,
-                                     const uv_buf_t *buf) {
+static void on_handshake_accept_read(uv_stream_t* stream,
+                                     ssize_t nread,
+                                     const uv_buf_t* buf) {
   int rc;
-  uvtls_t *tls = (uvtls_t *)stream->data;
-  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
+  uvtls_t* tls = (uvtls_t*) stream->data;
+  uvtls_session_t* session = (uvtls_session_t*) tls->impl;
 
   if ((nread == UV_EOF && !SSL_is_init_finished(session->ssl)) ||
       (nread != UV_EOF && nread < 0)) {
     uv_read_stop(stream);
-    tls->accept_cb(tls, (int)nread);
+    tls->accept_cb(tls, (int) nread);
     return;
   }
 
-  uvtls_ring_buf_tail_block_commit(&tls->incoming, (int)nread);
+  uvtls_ring_buf_tail_block_commit(&tls->incoming, (int) nread);
 
   rc = do_handshake(tls);
   if (rc != 0) {
@@ -558,11 +578,11 @@ static void on_handshake_accept_read(uv_stream_t *stream, ssize_t nread,
   }
 }
 
-static void do_read(uvtls_t *tls) {
-  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
+static void do_read(uvtls_t* tls) {
+  uvtls_session_t* session = (uvtls_session_t*) tls->impl;
   while (tls->read_cb) {
     int nread;
-    uv_buf_t *buf = &tls->alloc_buf;
+    uv_buf_t* buf = &tls->alloc_buf;
     if (buf->base == NULL) {
       tls->alloc_cb(tls, UVTLS_SUGGESTED_READ_SIZE, buf);
       if (buf->base == NULL || buf->len == 0) {
@@ -571,7 +591,7 @@ static void do_read(uvtls_t *tls) {
       }
       assert(buf->len <= INT_MAX && "Allocate read buf is too big");
     }
-    nread = SSL_read(session->ssl, buf->base, (int)buf->len);
+    nread = SSL_read(session->ssl, buf->base, (int) buf->len);
     if (nread < 0) {
       int error = SSL_get_error(session->ssl, nread);
       if (error == SSL_ERROR_WANT_READ) {
@@ -586,29 +606,29 @@ static void do_read(uvtls_t *tls) {
   }
 }
 
-static void on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
-  uvtls_t *tls = (uvtls_t *)stream->data;
+static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
+  uvtls_t* tls = (uvtls_t*) stream->data;
 
   if (nread < 0) {
     tls->read_cb(tls, nread, buf);
     return;
   }
 
-  uvtls_ring_buf_tail_block_commit(&tls->incoming, (int)nread);
+  uvtls_ring_buf_tail_block_commit(&tls->incoming, (int) nread);
 
   do_read(tls);
 }
 
-static void on_write(uv_write_t *req, int status) {
-  uvtls_write_t *write_req = (uvtls_write_t *)req->data;
+static void on_write(uv_write_t* req, int status) {
+  uvtls_write_t* write_req = (uvtls_write_t*) req->data;
   uvtls_ring_buf_head_blocks_commit(&write_req->tls->outgoing,
                                     write_req->commit_pos);
   write_req->cb(write_req, status);
 }
 
-static void on_close(uv_handle_t *handle) {
-  uvtls_t *tls = (uvtls_t *)handle->data;
-  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
+static void on_close(uv_handle_t* handle) {
+  uvtls_t* tls = (uvtls_t*) handle->data;
+  uvtls_session_t* session = (uvtls_session_t*) tls->impl;
   SSL_CTX_free(SSL_get_SSL_CTX(session->ssl));
   SSL_free(session->ssl);
   free(session);
@@ -617,8 +637,8 @@ static void on_close(uv_handle_t *handle) {
   }
 }
 
-int uvtls_context_init(uvtls_context_t *context, int flags) {
-  SSL_CTX *ssl_ctx;
+int uvtls_context_init(uvtls_context_t* context, int flags) {
+  SSL_CTX* ssl_ctx;
 
   if (flags & UVTLS_CONTEXT_LIB_INIT) {
     uv_once(&lib_init_guard__, lib_init);
@@ -641,22 +661,23 @@ int uvtls_context_init(uvtls_context_t *context, int flags) {
   return 0;
 }
 
-void uvtls_context_destroy(uvtls_context_t *context) {
-  SSL_CTX_free((SSL_CTX *)context->impl);
+void uvtls_context_destroy(uvtls_context_t* context) {
+  SSL_CTX_free((SSL_CTX*) context->impl);
 }
 
-void uvtls_context_set_verify_flags(uvtls_context_t *context,
+void uvtls_context_set_verify_flags(uvtls_context_t* context,
                                     int verify_flags) {
   context->verify_flags = verify_flags;
 }
 
-int uvtls_context_add_trusted_certs(uvtls_context_t *context, const char *cert,
+int uvtls_context_add_trusted_certs(uvtls_context_t* context,
+                                    const char* cert,
                                     size_t length) {
   int ncerts = 0;
-  X509 *x509;
-  X509_STORE *trusted_store = SSL_CTX_get_cert_store((SSL_CTX *)context->impl);
+  X509* x509;
+  X509_STORE* trusted_store = SSL_CTX_get_cert_store((SSL_CTX*) context->impl);
 
-  BIO *bio = BIO_new_mem_buf(cert, (int)length);
+  BIO* bio = BIO_new_mem_buf(cert, (int) length);
   if (bio == NULL) {
     return UV_ENOMEM;
   }
@@ -672,31 +693,33 @@ int uvtls_context_add_trusted_certs(uvtls_context_t *context, const char *cert,
   return ncerts == 0 ? UVTLS_EINVAL : 0;
 }
 
-int uvtls_context_set_cert(uvtls_context_t *context, const char *cert,
+int uvtls_context_set_cert(uvtls_context_t* context,
+                           const char* cert,
                            size_t length) {
-  X509 *x509 = load_cert(cert, length);
+  X509* x509 = load_cert(cert, length);
   if (x509 == NULL) {
     return UVTLS_EINVAL;
   }
 
-  SSL_CTX_use_certificate((SSL_CTX *)context->impl, x509);
+  SSL_CTX_use_certificate((SSL_CTX*) context->impl, x509);
   X509_free(x509);
   return 0;
 }
 
-int uvtls_context_set_private_key(uvtls_context_t *context, const char *key,
+int uvtls_context_set_private_key(uvtls_context_t* context,
+                                  const char* key,
                                   size_t length) {
-  EVP_PKEY *pkey = load_key(key, length);
+  EVP_PKEY* pkey = load_key(key, length);
   if (pkey == NULL) {
     return UVTLS_EINVAL;
   }
 
-  SSL_CTX_use_PrivateKey((SSL_CTX *)context->impl, pkey);
+  SSL_CTX_use_PrivateKey((SSL_CTX*) context->impl, pkey);
   EVP_PKEY_free(pkey);
   return 0;
 }
 
-int uvtls_init(uvtls_t *tls, uvtls_context_t *context, uv_stream_t *stream) {
+int uvtls_init(uvtls_t* tls, uvtls_context_t* context, uv_stream_t* stream) {
   int rc;
 
   ring_buf_bio_init_once();
@@ -722,8 +745,8 @@ int uvtls_init(uvtls_t *tls, uvtls_context_t *context, uv_stream_t *stream) {
     goto error;
   }
 
-  tls->impl = uvtls_session_create((SSL_CTX *)context->impl, &tls->incoming,
-                                   &tls->outgoing);
+  tls->impl = uvtls_session_create(
+      (SSL_CTX*) context->impl, &tls->incoming, &tls->outgoing);
   if (!tls->impl) {
     rc = UV_ENOMEM;
     goto error;
@@ -737,8 +760,8 @@ error:
   return rc;
 }
 
-int uvtls_set_hostname(uvtls_t *tls, const char *hostname, size_t length) {
-  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
+int uvtls_set_hostname(uvtls_t* tls, const char* hostname, size_t length) {
+  uvtls_session_t* session = (uvtls_session_t*) tls->impl;
 
   if (length + 1 > sizeof(tls->hostname)) {
     return UV_EINVAL;
@@ -753,9 +776,9 @@ int uvtls_set_hostname(uvtls_t *tls, const char *hostname, size_t length) {
   return 0;
 }
 
-int uvtls_connect(uvtls_connect_t *req, uvtls_t *tls, uvtls_connect_cb cb) {
+int uvtls_connect(uvtls_connect_t* req, uvtls_t* tls, uvtls_connect_cb cb) {
   int rc;
-  uvtls_session_t *session = (uvtls_session_t *)tls->impl;
+  uvtls_session_t* session = (uvtls_session_t*) tls->impl;
 
   req->tls = tls;
   req->cb = cb;
@@ -774,29 +797,29 @@ int uvtls_connect(uvtls_connect_t *req, uvtls_t *tls, uvtls_connect_cb cb) {
   return uv_read_start(tls->stream, on_alloc, on_handshake_connect_read);
 }
 
-int uvtls_is_closing(uvtls_t *tls) {
-  return uv_is_closing((uv_handle_t *)tls->stream);
+int uvtls_is_closing(uvtls_t* tls) {
+  return uv_is_closing((uv_handle_t*) tls->stream);
 }
 
-void uvtls_close(uvtls_t *tls, uvtls_close_cb cb) {
+void uvtls_close(uvtls_t* tls, uvtls_close_cb cb) {
   tls->close_cb = cb;
   tls->stream->data = tls;
-  uv_close((uv_handle_t *)tls->stream, on_close);
+  uv_close((uv_handle_t*) tls->stream, on_close);
 }
 
-static void on_connection(uv_stream_t *server, int status) {
-  uvtls_t *tls = (uvtls_t *)server->data;
+static void on_connection(uv_stream_t* server, int status) {
+  uvtls_t* tls = (uvtls_t*) server->data;
   tls->connection_cb(tls, status);
 }
 
-int uvtls_listen(uvtls_t *tls, int backlog, uvtls_connection_cb cb) {
+int uvtls_listen(uvtls_t* tls, int backlog, uvtls_connection_cb cb) {
   tls->stream->data = tls;
   tls->connection_cb = cb;
   return uv_listen(tls->stream, backlog, on_connection);
 }
 
-int uvtls_accept(uvtls_t *server, uvtls_t *client, uvtls_accept_cb cb) {
-  uvtls_session_t *session = (uvtls_session_t *)client->impl;
+int uvtls_accept(uvtls_t* server, uvtls_t* client, uvtls_accept_cb cb) {
+  uvtls_session_t* session = (uvtls_session_t*) client->impl;
 
   int rc = uv_accept(server->stream, client->stream);
   if (rc != 0) {
@@ -817,7 +840,8 @@ int uvtls_accept(uvtls_t *server, uvtls_t *client, uvtls_accept_cb cb) {
   return uv_read_start(client->stream, on_alloc, on_handshake_accept_read);
 }
 
-int uvtls_read_start(uvtls_t *tls, uvtls_alloc_cb alloc_cb,
+int uvtls_read_start(uvtls_t* tls,
+                     uvtls_alloc_cb alloc_cb,
                      uvtls_read_cb read_cb) {
   tls->stream->data = tls;
   tls->alloc_cb = alloc_cb;
@@ -828,11 +852,16 @@ int uvtls_read_start(uvtls_t *tls, uvtls_alloc_cb alloc_cb,
   return uv_read_start(tls->stream, on_alloc, on_read);
 }
 
-int uvtls_read_stop(uvtls_t *tls) { return uv_read_stop(tls->stream); }
+int uvtls_read_stop(uvtls_t* tls) {
+  return uv_read_stop(tls->stream);
+}
 
-int uvtls_write(uvtls_write_t *req, uvtls_t *tls, const uv_buf_t bufs[],
-                unsigned int nbufs, uvtls_write_cb cb) {
-  uvtls_session_t *session;
+int uvtls_write(uvtls_write_t* req,
+                uvtls_t* tls,
+                const uv_buf_t bufs[],
+                unsigned int nbufs,
+                uvtls_write_cb cb) {
+  uvtls_session_t* session;
   unsigned int i;
 
   const uvtls_ring_buf_pos_t start_pos = tls->outgoing.tail;
@@ -843,11 +872,11 @@ int uvtls_write(uvtls_write_t *req, uvtls_t *tls, const uv_buf_t bufs[],
   req->tls = tls;
   tls->stream->data = tls;
 
-  session = (uvtls_session_t *)tls->impl;
+  session = (uvtls_session_t*) tls->impl;
   for (i = 0; i < nbufs; ++i) {
-    SSL_write(session->ssl, bufs[i].base, (int)bufs[i].len);
+    SSL_write(session->ssl, bufs[i].base, (int) bufs[i].len);
   }
 
-  return do_write(&req->req, tls, start_pos, start_size, &req->commit_pos,
-                  on_write);
+  return do_write(
+      &req->req, tls, start_pos, start_size, &req->commit_pos, on_write);
 }

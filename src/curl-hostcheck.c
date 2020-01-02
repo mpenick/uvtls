@@ -20,6 +20,8 @@
  *
  ***************************************************************************/
 
+/* clang-format off */
+
 #include "curl-hostcheck.h"
 
 #include <stdlib.h>
