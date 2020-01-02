@@ -4,6 +4,7 @@
 #include <inttypes.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 #include <uv.h>
 
 typedef struct test_s test_t;
@@ -75,25 +76,104 @@ struct test_suite_s {
 #define GREEN_(s) "\033[0;32m" s "\033[0m"
 #define RED_(s) "\033[0;31m" s "\033[0m"
 
+static int match_(const char* p, const char* s) {
+  size_t px = 0, next_px = 0, sx = 0, next_sx = 0;
+  size_t plen = strlen(p), slen = strlen(s);
+
+  while (px < plen || sx < slen) {
+    char c = p[px];
+    switch (c) {
+      default:
+        if (sx < slen && s[sx] == c) {
+          px++;
+          sx++;
+          continue;
+        }
+        break;
+      case '?':
+        if (sx < slen) {
+          px++;
+          sx++;
+          continue;
+        }
+        break;
+      case '*':
+        next_px = px;
+        next_sx = sx + 1;
+        px++;
+        continue;
+    }
+    if (0 < next_sx && next_sx <= slen) {
+      px = next_px;
+      sx = next_sx;
+      continue;
+    }
+    return 0;
+  }
+
+  return 1;
+}
+
+static int test_match_full_name_(const char* p,
+                                 const char* test_case_name,
+                                 const char* test_name) {
+  char full_test_name[1024];
+  snprintf(full_test_name,
+           sizeof(full_test_name),
+           "%s.%s",
+           test_case_name,
+           test_name);
+  return match_(p, full_test_name);
+}
+
+static void test_help_(const char* prog) {
+  fprintf(stderr, "%s [-f|--filter <pattern>]", prog);
+}
+
+static int test_parse_options_(int argc, char** argv, const char** filter) {
+  int i;
+  int noptions = 0;
+  for (i = 1; i < argc; ++i) {
+    char* arg = argv[i];
+    if (strstr(arg, "-f") || strstr(arg, "--filter")) {
+      i++;
+      if (i >= argc) {
+        test_help_(argv[0]);
+        return -1;
+      }
+      *filter = argv[i];
+      noptions++;
+    }
+  }
+  return noptions;
+}
+
 static uint64_t test_elapsed_ms_(uint64_t start) {
   return (uv_hrtime() - start) / (1000 * 1000);
 }
 
-static void test_suite_run_(test_suite_t* suite, FILE* file) {
+static void test_suite_run_(test_suite_t* suite, int argc, char** argv) {
   int i, ncases = 0, ntests = 0, nfailed = 0, npassed = 0;
-
+  const char* filter = "*";
   uint64_t start_suite;
+
+  if (test_parse_options_(argc, argv, &filter) < 0) {
+    return;
+  }
 
   for (i = 0; suite->cases[i]; ++i) {
     int j;
     test_case_t* test_case = suite->cases[i];
     ncases++;
     for (j = 0; test_case->tests[j].name && test_case->tests[j].func; ++j) {
-      ntests++;
+      if (test_match_full_name_(
+              filter, test_case->name, test_case->tests[j].name)) {
+        ntests++;
+      }
     }
   }
 
-  fprintf(file,
+  fprintf(stderr,
           GREEN_("[==========]") " Running %d tests from %d test cases.\n",
           ntests,
           ncases);
@@ -105,10 +185,13 @@ static void test_suite_run_(test_suite_t* suite, FILE* file) {
     test_case_t* test_case = suite->cases[i];
 
     for (j = 0; test_case->tests[j].name && test_case->tests[j].func; ++j) {
-      count++;
+      if (test_match_full_name_(
+              filter, test_case->name, test_case->tests[j].name)) {
+        count++;
+      }
     }
 
-    fprintf(file,
+    fprintf(stderr,
             GREEN_("[----------]") " %d tests from %s\n",
             count,
             test_case->name);
@@ -117,9 +200,13 @@ static void test_suite_run_(test_suite_t* suite, FILE* file) {
     for (j = 0; test_case->tests[j].name && test_case->tests[j].func; ++j) {
       uint64_t start_test;
       test_t* test = &test_case->tests[j];
-      test->result = OK;
 
-      fprintf(file,
+      if (!test_match_full_name_(filter, test_case->name, test->name)) {
+        continue;
+      }
+
+      test->result = OK;
+      fprintf(stderr,
               GREEN_("[ %-8s ]") " %s.%s\n",
               "RUN",
               test_case->name,
@@ -137,7 +224,7 @@ static void test_suite_run_(test_suite_t* suite, FILE* file) {
       }
       if (test->result == FAILED) {
         nfailed++;
-        fprintf(file,
+        fprintf(stderr,
                 RED_("[ %8s ]") " %s.%s (%lu ms)\n",
                 "FAIL",
                 test_case->name,
@@ -145,7 +232,7 @@ static void test_suite_run_(test_suite_t* suite, FILE* file) {
                 test_elapsed_ms_(start_test));
       } else {
         npassed++;
-        fprintf(file,
+        fprintf(stderr,
                 GREEN_("[ %8s ]") " %s.%s (%lu ms)\n",
                 "OK",
                 test_case->name,
@@ -154,7 +241,7 @@ static void test_suite_run_(test_suite_t* suite, FILE* file) {
       }
     }
 
-    fprintf(file,
+    fprintf(stderr,
             GREEN_("[----------]") " %d tests from %s (%lu ms total)\n\n",
             count,
             test_case->name,
@@ -162,16 +249,16 @@ static void test_suite_run_(test_suite_t* suite, FILE* file) {
   }
 
   fprintf(
-      file,
+      stderr,
       GREEN_(
           "[==========]") " %d tests ran from %d test cases. (%lu ms total)\n",
       ntests,
       ncases,
       test_elapsed_ms_(start_suite));
 
-  fprintf(file, GREEN_("[  %s  ]") " %d tests. \n", "PASSED", npassed);
+  fprintf(stderr, GREEN_("[  %s  ]") " %d tests. \n", "PASSED", npassed);
   if (nfailed > 0) {
-    fprintf(file,
+    fprintf(stderr,
             RED_("[  %s  ]") " %d test%s, listed below: \n",
             "FAILED",
             nfailed,
@@ -182,7 +269,7 @@ static void test_suite_run_(test_suite_t* suite, FILE* file) {
       for (j = 0; test_case->tests[j].name && test_case->tests[j].func; ++j) {
         test_t* test = &test_case->tests[j];
         if (test->result == FAILED) {
-          fprintf(file,
+          fprintf(stderr,
                   RED_("[  %s  ]") " %s.%s\n",
                   "FAILED",
                   test_case->name,
@@ -193,7 +280,7 @@ static void test_suite_run_(test_suite_t* suite, FILE* file) {
   }
 }
 
-static void dump_hex_(void* ptr, size_t size) {
+static void test_dump_hex_(void* ptr, size_t size) {
   size_t i;
   for (i = 0; i < size; ++i) {
     fprintf(
@@ -217,9 +304,9 @@ static void dump_hex_(void* ptr, size_t size) {
 #define FAILURE_MEM_(expected, actual, size) \
   FAILURE_LOCATION_()                        \
   fprintf(stderr, "%10s: ", "Expected");     \
-  dump_hex_(expected, size);                 \
+  test_dump_hex_(expected, size);            \
   fprintf(stderr, "%10s: ", "Actual");       \
-  dump_hex_(actual, size);
+  test_dump_hex_(actual, size);
 
 #define ASSERT_(x, ret)               \
   do {                                \
@@ -267,6 +354,7 @@ static void dump_hex_(void* ptr, size_t size) {
 #define EXPECT_MEMCMP_EQ(expected, actual, size) \
   ASSERT_MEMCMP_(expected, actual, size, ==, 1)
 
-#define TEST_SUITE_RUN(name) test_suite_run_(&test_suite_##name##_, stderr)
+#define TEST_SUITE_RUN(name, argc, argv) \
+  test_suite_run_(&test_suite_##name##_, argc, argv)
 
 #endif

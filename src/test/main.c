@@ -9,6 +9,6 @@ TEST_SUITE_BEGIN(uvtls)
   TEST_CASE_ENTRY_LAST()
 TEST_SUITE_END()
 
-int main() {
-  TEST_SUITE_RUN(uvtls);
+int main(int argc, char** argv) {
+  TEST_SUITE_RUN(uvtls, argc, argv);
 }
