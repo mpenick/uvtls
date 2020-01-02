@@ -3,10 +3,10 @@
 TEST_CASE_EXTERN(ring_buf);
 TEST_CASE_EXTERN(client);
 
-TEST_SUITE(uvtls)
+TEST_SUITE_BEGIN(uvtls)
   TEST_CASE_ENTRY(ring_buf)
   TEST_CASE_ENTRY(client)
-  NULL
+  TEST_CASE_ENTRY_LAST()
 TEST_SUITE_END()
 
 int main() {

@@ -5,27 +5,27 @@
 #include <stdlib.h>
 #include <string.h>
 
-void on_server_client_close(uvtls_t *tls) {
+void on_server_client_close(uvtls_t* tls) {
   printf("server client close\n");
   free(tls->stream);
   free(tls);
 }
 
-void on_server_client_write(uvtls_write_t *req, int status) {
+void on_server_client_write(uvtls_write_t* req, int status) {
   uvtls_close(req->tls, on_server_client_close);
   free(req);
 }
 
-void on_server_client_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
+void on_server_client_read(uvtls_t* tls, ssize_t nread, const uv_buf_t* buf) {
   if (nread < 0) {
     uvtls_close(tls, on_server_client_close);
     return;
   }
 
-  printf("server: %.*s\n", (int)nread, buf->base);
+  printf("server: %.*s\n", (int) nread, buf->base);
 
   {
-    uvtls_write_t *write_req = (uvtls_write_t *)malloc(sizeof(uvtls_write_t));
+    uvtls_write_t* write_req = (uvtls_write_t*) malloc(sizeof(uvtls_write_t));
     uv_buf_t buf;
     buf.base = "<html><head>Hi</head><body>Bye</body></html>";
     buf.len = strlen(buf.base);
@@ -33,35 +33,38 @@ void on_server_client_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
   }
 }
 
-void on_server_client_alloc(uvtls_t *tls, size_t suggested_size,
-                            uv_buf_t *buf) {
+void on_server_client_alloc(uvtls_t* tls,
+                            size_t suggested_size,
+                            uv_buf_t* buf) {
   static char data[64 * 1024];
   buf->base = data;
   buf->len = sizeof(data);
 }
 
-void on_accept(uvtls_t *client, int status) {
+void on_accept(uvtls_t* client, int status) {
   printf("accept\n");
   uvtls_read_start(client, on_server_client_alloc, on_server_client_read);
 }
 
-void on_connection(uvtls_t *server, int status) {
-  uv_tcp_t *tcp = (uv_tcp_t *)malloc(sizeof(uv_tcp_t));
-  uvtls_t *client = (uvtls_t *)malloc(sizeof(uvtls_t));
+void on_connection(uvtls_t* server, int status) {
+  uv_tcp_t* tcp = (uv_tcp_t*) malloc(sizeof(uv_tcp_t));
+  uvtls_t* client = (uvtls_t*) malloc(sizeof(uvtls_t));
 
   uv_tcp_init(server->stream->loop, tcp);
-  uvtls_init(client, server->context, (uv_stream_t *)tcp);
+  uvtls_init(client, server->context, (uv_stream_t*) tcp);
 
   uvtls_accept(server, client, on_accept);
   uvtls_close(server, NULL);
 }
 
-void on_write(uvtls_write_t *req, int status);
+void on_write(uvtls_write_t* req, int status);
 
-void on_close(uvtls_t *tls) { printf("client close\n"); }
+void on_close(uvtls_t* tls) {
+  printf("client close\n");
+}
 
-void on_connect(uvtls_connect_t *req, int status) {
-  uvtls_write_t *write_req;
+void on_connect(uvtls_connect_t* req, int status) {
+  uvtls_write_t* write_req;
   uv_buf_t buf;
 
   if (status != 0) {
@@ -71,43 +74,44 @@ void on_connect(uvtls_connect_t *req, int status) {
     return;
   }
 
-  write_req = (uvtls_write_t *)malloc(sizeof(uvtls_write_t));
+  write_req = (uvtls_write_t*) malloc(sizeof(uvtls_write_t));
 
-  buf.base = "GET / HTTP/1.0\r\n"
-             "Host: www.google.com\r\n\r\n";
+  buf.base =
+      "GET / HTTP/1.0\r\n"
+      "Host: www.google.com\r\n\r\n";
   buf.len = strlen(buf.base);
   uvtls_write(write_req, req->tls, &buf, 1, on_write);
 
   free(req);
 }
 
-void on_tcp_connect(uv_connect_t *req, int status) {
-  uvtls_t *tls = (uvtls_t *)req->data;
-  uvtls_connect_t *connect_req =
-      (uvtls_connect_t *)malloc(sizeof(uvtls_connect_t));
+void on_tcp_connect(uv_connect_t* req, int status) {
+  uvtls_t* tls = (uvtls_t*) req->data;
+  uvtls_connect_t* connect_req =
+      (uvtls_connect_t*) malloc(sizeof(uvtls_connect_t));
   uvtls_connect(connect_req, tls, on_connect);
 }
 
-void on_alloc(uvtls_t *tls, size_t suggested_size, uv_buf_t *buf) {
+void on_alloc(uvtls_t* tls, size_t suggested_size, uv_buf_t* buf) {
   static char data[64 * 1024];
   buf->base = data;
   buf->len = sizeof(data);
 }
 
-void on_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
+void on_read(uvtls_t* tls, ssize_t nread, const uv_buf_t* buf) {
   if (nread > 0) {
-    printf("client: %.*s\n", (int)nread, buf->base);
+    printf("client: %.*s\n", (int) nread, buf->base);
   } else {
     uvtls_close(tls, on_close);
   }
 }
 
-void on_write(uvtls_write_t *req, int status) {
+void on_write(uvtls_write_t* req, int status) {
   uvtls_read_start(req->tls, on_alloc, on_read);
   free(req);
 }
 
-static const char *cert =
+static const char* cert =
     "-----BEGIN CERTIFICATE-----\n"
     "MIIDazCCAlOgAwIBAgIUNgd/YyO3R5N9POwL/k0w3owRZ8YwDQYJKoZIhvcNAQEL\n"
     "BQAwRTELMAkGA1UEBhMCQVUxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM\n"
@@ -130,7 +134,7 @@ static const char *cert =
     "GfMmS973Gk5+TU3g4Em9\n"
     "-----END CERTIFICATE-----";
 
-static const char *key =
+static const char* key =
     "-----BEGIN PRIVATE KEY-----\n"
     "MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCf128XN+VmcSJa\n"
     "QEvKfd69PzbbW0ogHAWZnfPukmXsd2sapO+0fG1poP8UJpEC1J7T8c76T6OUGbTh\n"
@@ -177,14 +181,14 @@ void test_client_server() {
   uv_ip4_addr("0.0.0.0", 8888, &bindaddr);
 
   uv_tcp_init(&loop, &server);
-  uv_tcp_bind(&server, (const struct sockaddr *)&bindaddr, 0);
+  uv_tcp_bind(&server, (const struct sockaddr*) &bindaddr, 0);
 
   uvtls_context_init(&tls_context_server, UVTLS_CONTEXT_LIB_INIT);
   uvtls_context_set_verify_flags(&tls_context_server, UVTLS_VERIFY_NONE);
   uvtls_context_set_cert(&tls_context_server, cert, strlen(cert));
   uvtls_context_set_private_key(&tls_context_server, key, strlen(key));
 
-  uvtls_init(&tls_server, &tls_context_server, (uv_stream_t *)&server);
+  uvtls_init(&tls_server, &tls_context_server, (uv_stream_t*) &server);
 
   uvtls_listen(&tls_server, 100, on_connection);
 
@@ -195,11 +199,11 @@ void test_client_server() {
 
   uvtls_context_add_trusted_certs(&tls_context_client, cert, strlen(cert));
 
-  uvtls_init(&tls_client, &tls_context_client, (uv_stream_t *)&client);
+  uvtls_init(&tls_client, &tls_context_client, (uv_stream_t*) &client);
 
   connect_req.data = &tls_client;
-  uv_tcp_connect(&connect_req, &client, (const struct sockaddr *)&addr,
-                 on_tcp_connect);
+  uv_tcp_connect(
+      &connect_req, &client, (const struct sockaddr*) &addr, on_tcp_connect);
 
   uv_run(&loop, UV_RUN_DEFAULT);
 
@@ -210,12 +214,12 @@ void test_client_server() {
   uv_loop_close(&loop);
 }
 
-char *load_file(const char *filename) {
+char* load_file(const char* filename) {
   long size;
-  char *contents;
+  char* contents;
   size_t nread;
 
-  FILE *f = fopen(filename, "r");
+  FILE* f = fopen(filename, "r");
   if (!f) {
     return NULL;
   }
@@ -224,10 +228,10 @@ char *load_file(const char *filename) {
 
   size = ftell(f);
   assert(size >= 0 && "Negative value returned for file size");
-  contents = (char *)malloc((size_t)size + 1);
+  contents = (char*) malloc((size_t) size + 1);
 
   fseek(f, 0, SEEK_SET);
-  nread = fread(contents, (size_t)size, 1, f);
+  nread = fread(contents, (size_t) size, 1, f);
   assert(nread == 1 && "Unable to read contents of the file");
 
   contents[size] = '\0';
@@ -241,7 +245,7 @@ void test_client() {
   uvtls_t tls;
   uvtls_context_t tls_context;
   uv_connect_t connect_req;
-  char *ca_certs;
+  char* ca_certs;
 
   struct sockaddr_in addr;
   uv_ip4_addr("172.217.164.174", 443, &addr);
@@ -258,13 +262,13 @@ void test_client() {
 
   free(ca_certs);
 
-  uvtls_init(&tls, &tls_context, (uv_stream_t *)&tcp);
+  uvtls_init(&tls, &tls_context, (uv_stream_t*) &tcp);
 
   uvtls_set_hostname(&tls, "google.com", strlen("google.com"));
 
   connect_req.data = &tls;
-  uv_tcp_connect(&connect_req, &tcp, (const struct sockaddr *)&addr,
-                 on_tcp_connect);
+  uv_tcp_connect(
+      &connect_req, &tcp, (const struct sockaddr*) &addr, on_tcp_connect);
 
   uv_run(&loop, UV_RUN_DEFAULT);
 

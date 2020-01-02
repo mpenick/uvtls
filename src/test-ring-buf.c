@@ -1,4 +1,4 @@
-#include <uvtls.h>
+#include "ring-buf.h"
 
 /*-----------------------------------------------------------------------------
  * MurmurHash3 was written by Austin Appleby, and is placed in the public
@@ -34,9 +34,9 @@ typedef struct {
 /*
  * The MD5 transformation for all four rounds.
  */
-#define STEP(f, a, b, c, d, x, t, s)                                           \
-  (a) += f((b), (c), (d)) + (x) + (t);                                         \
-  (a) = (((a) << (s)) | (((a)&0xffffffff) >> (32 - (s))));                     \
+#define STEP(f, a, b, c, d, x, t, s)                        \
+  (a) += f((b), (c), (d)) + (x) + (t);                      \
+  (a) = (((a) << (s)) | (((a) &0xffffffff) >> (32 - (s)))); \
   (a) += (b);
 
 /*
@@ -55,14 +55,14 @@ typedef struct {
  * their own translation unit avoids the problem.
  */
 #if defined(__i386__) || defined(__x86_64__) || defined(__vax__)
-#define SET(n) (*(MD5_u32plus *)&ptr[(n)*4])
+#define SET(n) (*(MD5_u32plus*) &ptr[(n) *4])
 #define GET(n) SET(n)
 #else
-#define SET(n)                                                                 \
-  (ctx->block[(n)] = (MD5_u32plus)ptr[(n)*4] |                                 \
-                     ((MD5_u32plus)ptr[(n)*4 + 1] << 8) |                      \
-                     ((MD5_u32plus)ptr[(n)*4 + 2] << 16) |                     \
-                     ((MD5_u32plus)ptr[(n)*4 + 3] << 24))
+#define SET(n)                                               \
+  (ctx->block[(n)] = (MD5_u32plus) ptr[(n) *4] |             \
+                     ((MD5_u32plus) ptr[(n) *4 + 1] << 8) |  \
+                     ((MD5_u32plus) ptr[(n) *4 + 2] << 16) | \
+                     ((MD5_u32plus) ptr[(n) *4 + 3] << 24))
 #define GET(n) (ctx->block[(n)])
 #endif
 
@@ -70,12 +70,12 @@ typedef struct {
  * This processes one or more 64-byte data blocks, but does NOT update the bit
  * counters.  There are no alignment requirements.
  */
-static const void *body(MD5_CTX *ctx, const void *data, unsigned long size) {
-  const unsigned char *ptr;
+static const void* body(MD5_CTX* ctx, const void* data, unsigned long size) {
+  const unsigned char* ptr;
   MD5_u32plus a, b, c, d;
   MD5_u32plus saved_a, saved_b, saved_c, saved_d;
 
-  ptr = (const unsigned char *)data;
+  ptr = (const unsigned char*) data;
 
   a = ctx->a;
   b = ctx->b;
@@ -176,7 +176,7 @@ static const void *body(MD5_CTX *ctx, const void *data, unsigned long size) {
   return ptr;
 }
 
-void MD5_Init(MD5_CTX *ctx) {
+void MD5_Init(MD5_CTX* ctx) {
   ctx->a = 0x67452301;
   ctx->b = 0xefcdab89;
   ctx->c = 0x98badcfe;
@@ -186,7 +186,7 @@ void MD5_Init(MD5_CTX *ctx) {
   ctx->hi = 0;
 }
 
-void MD5_Update(MD5_CTX *ctx, const void *data, unsigned long size) {
+void MD5_Update(MD5_CTX* ctx, const void* data, unsigned long size) {
   MD5_u32plus saved_lo;
   unsigned long used, available;
 
@@ -206,26 +206,26 @@ void MD5_Update(MD5_CTX *ctx, const void *data, unsigned long size) {
     }
 
     memcpy(&ctx->buffer[used], data, available);
-    data = (const unsigned char *)data + available;
+    data = (const unsigned char*) data + available;
     size -= available;
     body(ctx, ctx->buffer, 64);
   }
 
   if (size >= 64) {
-    data = body(ctx, data, size & ~(unsigned long)0x3f);
+    data = body(ctx, data, size & ~(unsigned long) 0x3f);
     size &= 0x3f;
   }
 
   memcpy(ctx->buffer, data, size);
 }
 
-#define OUT(dst, src)                                                          \
-  (dst)[0] = (unsigned char)(src);                                             \
-  (dst)[1] = (unsigned char)((src) >> 8);                                      \
-  (dst)[2] = (unsigned char)((src) >> 16);                                     \
-  (dst)[3] = (unsigned char)((src) >> 24);
+#define OUT(dst, src)                       \
+  (dst)[0] = (unsigned char) (src);         \
+  (dst)[1] = (unsigned char) ((src) >> 8);  \
+  (dst)[2] = (unsigned char) ((src) >> 16); \
+  (dst)[3] = (unsigned char) ((src) >> 24);
 
-void MD5_Final(unsigned char *result, MD5_CTX *ctx) {
+void MD5_Final(unsigned char* result, MD5_CTX* ctx) {
   unsigned long used, available;
 
   used = ctx->lo & 0x3f;
@@ -264,13 +264,13 @@ int rand_range(int min, int max) {
     return min;
   }
   return min +
-         (int)rand() % delta; /* Not perfect distribution but good enough */
+         (int) rand() % delta; /* Not perfect distribution but good enough */
 }
 
-void fill_random(char *buf, int length) {
+void fill_random(char* buf, int length) {
   int i;
   for (i = 0; i < length; ++i) {
-    buf[i] = (char)97 + rand() % 26;
+    buf[i] = (char) 97 + rand() % 26;
   }
   buf[length] = '\0';
 }
@@ -278,8 +278,8 @@ void fill_random(char *buf, int length) {
 #define MAX_LENGTH (1024 * 1024)
 /*#define MAX_LENGTH (64 * 1024)*/
 
-void test_write(uvtls_ring_buf_t *rb, const char *buf, int length) {
-  const char *pos = buf;
+void test_write(uvtls_ring_buf_t* rb, const char* buf, int length) {
+  const char* pos = buf;
   int remaining = length;
 
   while (remaining > 0) {
@@ -293,11 +293,11 @@ void test_write(uvtls_ring_buf_t *rb, const char *buf, int length) {
   }
 }
 
-void test_read(uvtls_ring_buf_t *rb, int length, unsigned char md5[]) {
+void test_read(uvtls_ring_buf_t* rb, int length, unsigned char md5[]) {
   MD5_CTX ctx;
   int num_bytes;
   int remaining = length;
-  char *temp = (char *)malloc(length + 1);
+  char* temp = (char*) malloc(length + 1);
 
   MD5_Init(&ctx);
 
@@ -326,7 +326,7 @@ void test_read(uvtls_ring_buf_t *rb, int length, unsigned char md5[]) {
   free(temp);
 }
 
-void test_write_read(uvtls_ring_buf_t *rb, const char *buf) {
+void test_write_read(uvtls_ring_buf_t* rb, const char* buf) {
   int i;
   for (i = 1; i <= 100000; ++i) {
     int length = rand_range(1, MAX_LENGTH);
@@ -350,12 +350,12 @@ void test_write_read(uvtls_ring_buf_t *rb, const char *buf) {
   }
 }
 
-void test_tail_commit(uvtls_ring_buf_t *rb, const char *buf, int length) {
-  const char *pos = buf;
+void test_tail_commit(uvtls_ring_buf_t* rb, const char* buf, int length) {
+  const char* pos = buf;
   int remaining = length;
 
   while (remaining > 0) {
-    char *temp;
+    char* temp;
     int available = uvtls_ring_buf_tail_block(rb, &temp, MAX_LENGTH);
 
     int to_copy = rand_range(1, remaining);
@@ -366,7 +366,7 @@ void test_tail_commit(uvtls_ring_buf_t *rb, const char *buf, int length) {
       to_copy = available;
     }
 
-    memcpy(temp, pos, (unsigned)to_copy);
+    memcpy(temp, pos, (unsigned) to_copy);
 
     uvtls_ring_buf_tail_block_commit(rb, to_copy);
 
@@ -375,10 +375,10 @@ void test_tail_commit(uvtls_ring_buf_t *rb, const char *buf, int length) {
   }
 }
 
-void test_head_commit(uvtls_ring_buf_t *rb, int length, unsigned char md5[]) {
+void test_head_commit(uvtls_ring_buf_t* rb, int length, unsigned char md5[]) {
   MD5_CTX ctx;
   int remaining = length;
-  char *temp = (char *)malloc(length + 1);
+  char* temp = (char*) malloc(length + 1);
 
   MD5_Init(&ctx);
 
@@ -431,7 +431,7 @@ void test_head_commit(uvtls_ring_buf_t *rb, int length, unsigned char md5[]) {
   free(temp);
 }
 
-void test_tail_head_commit(uvtls_ring_buf_t *rb, const char *buf) {
+void test_tail_head_commit(uvtls_ring_buf_t* rb, const char* buf) {
   int i;
   for (i = 1; i <= 10000; ++i) {
     int length = rand_range(1, MAX_LENGTH);
@@ -458,12 +458,12 @@ void test_tail_head_commit(uvtls_ring_buf_t *rb, const char *buf) {
 
 void test_ring_buf() {
   uvtls_ring_buf_t rb;
-  char *buf;
+  char* buf;
   srand(0x12345679);
 
   uvtls_ring_buf_init(&rb);
 
-  buf = (char *)malloc(MAX_LENGTH + 1);
+  buf = (char*) malloc(MAX_LENGTH + 1);
   fill_random(buf, MAX_LENGTH);
 
   /* test_write_read(&rb, buf); */

@@ -6,7 +6,7 @@
 
 static char write_data[64 * 1024];
 
-static const char *cert =
+static const char* cert =
     "-----BEGIN CERTIFICATE-----\n"
     "MIIDazCCAlOgAwIBAgIUNgd/YyO3R5N9POwL/k0w3owRZ8YwDQYJKoZIhvcNAQEL\n"
     "BQAwRTELMAkGA1UEBhMCQVUxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM\n"
@@ -29,7 +29,7 @@ static const char *cert =
     "GfMmS973Gk5+TU3g4Em9\n"
     "-----END CERTIFICATE-----";
 
-static const char *key =
+static const char* key =
     "-----BEGIN PRIVATE KEY-----\n"
     "MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCf128XN+VmcSJa\n"
     "QEvKfd69PzbbW0ogHAWZnfPukmXsd2sapO+0fG1poP8UJpEC1J7T8c76T6OUGbTh\n"
@@ -78,22 +78,24 @@ struct client_s {
   char data[64 * 1024];
 };
 
-void do_write(client_t *client);
+void do_write(client_t* client);
 
-void on_server_client_close(uvtls_t *tls) {
-  client_t *client = (client_t *)tls->data;
+void on_server_client_close(uvtls_t* tls) {
+  client_t* client = (client_t*) tls->data;
   printf("server client close\n");
   if (client->start > 0) {
     uint64_t delta = uv_hrtime() - client->start;
-    double elapsed = (double)delta / (1e9);
+    double elapsed = (double) delta / (1e9);
     printf("%f MB/sec (%lu bytes in %f secs)\n",
-           (client->total / elapsed) / (1024 * 1024), client->total, elapsed);
+           (client->total / elapsed) / (1024 * 1024),
+           client->total,
+           elapsed);
   }
   free(client);
 }
 
-void on_server_client_write(uvtls_write_t *req, int status) {
-  client_t *client = (client_t *)req->tls->data;
+void on_server_client_write(uvtls_write_t* req, int status) {
+  client_t* client = (client_t*) req->tls->data;
 
   if (status != 0) {
     fprintf(stderr, "Write error %s\n", uvtls_strerror(status));
@@ -104,7 +106,7 @@ void on_server_client_write(uvtls_write_t *req, int status) {
   do_write(client);
 }
 
-void do_write(client_t *client) {
+void do_write(client_t* client) {
   if (client->length != 0) {
     uv_buf_t buf;
     buf.base = write_data;
@@ -117,14 +119,14 @@ void do_write(client_t *client) {
   }
 }
 
-void on_server_client_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
-  client_t *client = (client_t *)tls->data;
-  const char *pos = buf->base;
-  const char *end = buf->base + nread;
+void on_server_client_read(uvtls_t* tls, ssize_t nread, const uv_buf_t* buf) {
+  client_t* client = (client_t*) tls->data;
+  const char* pos = buf->base;
+  const char* end = buf->base + nread;
 
   if (nread < 0) {
     if (nread != UV_EOF && nread != UV_ECONNRESET) {
-      fprintf(stderr, "Read error: %s\n", uvtls_strerror((int)nread));
+      fprintf(stderr, "Read error: %s\n", uvtls_strerror((int) nread));
     }
     uvtls_close(tls, on_server_client_close);
     return;
@@ -133,51 +135,51 @@ void on_server_client_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
   while (pos != end) {
     size_t nbytes;
     switch (client->state) {
-    case OPCODE:
-      switch (*pos++) {
-      case READ:
-        client->opcode = READ;
+      case OPCODE:
+        switch (*pos++) {
+          case READ:
+            client->opcode = READ;
+            break;
+          case WRITE:
+            client->opcode = WRITE;
+            break;
+          default:
+            fprintf(stderr, "Invalid opcode %d\n", (int) *pos);
+            uvtls_close(tls, on_server_client_close);
+            return;
+        }
+        client->start = uv_hrtime();
+        client->state = LENGTH;
         break;
-      case WRITE:
-        client->opcode = WRITE;
-        break;
-      default:
-        fprintf(stderr, "Invalid opcode %d\n", (int)*pos);
-        uvtls_close(tls, on_server_client_close);
-        return;
-      }
-      client->start = uv_hrtime();
-      client->state = LENGTH;
-      break;
-    case LENGTH:
-      nbytes = (size_t)(end - pos);
-      if (nbytes > 4 - client->temp_size) {
-        nbytes = 4 - client->temp_size;
-      }
-      memcpy(client->temp, pos, nbytes);
-      client->temp_size += nbytes;
-      if (client->temp_size == 4) {
-        client->state = BODY;
-        client->total = client->length =
-            (size_t)((uint8_t)client->temp[0] << 24) |
-            (size_t)((uint8_t)client->temp[1] << 16) |
-            (size_t)((uint8_t)client->temp[2] << 8) |
-            (size_t)(uint8_t)client->temp[3];
-      }
-      pos += nbytes;
-      break;
-    case BODY:
-      if (client->opcode == READ) {
+      case LENGTH:
         nbytes = (size_t)(end - pos);
-        if (nbytes >= client->length) {
-          client->state = OPCODE;
-          nbytes = client->length;
+        if (nbytes > 4 - client->temp_size) {
+          nbytes = 4 - client->temp_size;
+        }
+        memcpy(client->temp, pos, nbytes);
+        client->temp_size += nbytes;
+        if (client->temp_size == 4) {
+          client->state = BODY;
+          client->total = client->length =
+              (size_t)((uint8_t) client->temp[0] << 24) |
+              (size_t)((uint8_t) client->temp[1] << 16) |
+              (size_t)((uint8_t) client->temp[2] << 8) |
+              (size_t)(uint8_t) client->temp[3];
         }
         pos += nbytes;
-      } else {
-        do_write(client);
-      }
-      break;
+        break;
+      case BODY:
+        if (client->opcode == READ) {
+          nbytes = (size_t)(end - pos);
+          if (nbytes >= client->length) {
+            client->state = OPCODE;
+            nbytes = client->length;
+          }
+          pos += nbytes;
+        } else {
+          do_write(client);
+        }
+        break;
     }
   }
 
@@ -186,14 +188,15 @@ void on_server_client_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
   }
 }
 
-void on_server_client_alloc(uvtls_t *tls, size_t suggested_size,
-                            uv_buf_t *buf) {
-  client_t *client = (client_t *)tls->data;
+void on_server_client_alloc(uvtls_t* tls,
+                            size_t suggested_size,
+                            uv_buf_t* buf) {
+  client_t* client = (client_t*) tls->data;
   buf->base = client->data;
   buf->len = sizeof(client->data);
 }
 
-void on_accept(uvtls_t *client, int status) {
+void on_accept(uvtls_t* client, int status) {
   if (status != 0) {
     fprintf(stderr, "Unable to accept client: %s\n", uvtls_strerror(status));
     uvtls_close(client, on_server_client_close);
@@ -203,7 +206,7 @@ void on_accept(uvtls_t *client, int status) {
   uvtls_read_start(client, on_server_client_alloc, on_server_client_read);
 }
 
-static int client_init(uvtls_t *server, client_t *client) {
+static int client_init(uvtls_t* server, client_t* client) {
   int rc;
   client->tls.data = client;
   client->start = 0;
@@ -216,16 +219,16 @@ static int client_init(uvtls_t *server, client_t *client) {
     return rc;
   }
 
-  rc = uvtls_init(&client->tls, server->context, (uv_stream_t *)&client->tcp);
+  rc = uvtls_init(&client->tls, server->context, (uv_stream_t*) &client->tcp);
   if (rc != 0) {
-    uv_close((uv_handle_t *)&client->tcp, NULL);
+    uv_close((uv_handle_t*) &client->tcp, NULL);
   }
 
   return rc;
 }
 
-void on_connection(uvtls_t *server, int status) {
-  client_t *client = (client_t *)malloc(sizeof(client_t));
+void on_connection(uvtls_t* server, int status) {
+  client_t* client = (client_t*) malloc(sizeof(client_t));
 
   int rc = client_init(server, client);
   if (rc != 0) {
@@ -250,14 +253,14 @@ int main() {
   uv_ip4_addr("0.0.0.0", 8888, &bindaddr);
 
   uv_tcp_init(&loop, &server);
-  uv_tcp_bind(&server, (const struct sockaddr *)&bindaddr, 0);
+  uv_tcp_bind(&server, (const struct sockaddr*) &bindaddr, 0);
 
   uvtls_context_init(&tls_context_server, UVTLS_CONTEXT_LIB_INIT);
   uvtls_context_set_verify_flags(&tls_context_server, UVTLS_VERIFY_NONE);
   uvtls_context_set_cert(&tls_context_server, cert, strlen(cert));
   uvtls_context_set_private_key(&tls_context_server, key, strlen(key));
 
-  uvtls_init(&tls_server, &tls_context_server, (uv_stream_t *)&server);
+  uvtls_init(&tls_server, &tls_context_server, (uv_stream_t*) &server);
 
   uvtls_listen(&tls_server, 100, on_connection);
 

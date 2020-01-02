@@ -5,23 +5,25 @@
 #include <stdlib.h>
 #include <string.h>
 
-void on_write(uvtls_write_t *req, int status);
+void on_write(uvtls_write_t* req, int status);
 
-void on_close(uvtls_t *tls) { printf("client close\n"); }
+void on_close(uvtls_t* tls) {
+  printf("client close\n");
+}
 
 typedef struct request_s request_t;
 
 struct request_s {
-  uvtls_t *tls;
+  uvtls_t* tls;
   uvtls_connect_t connect_req;
   uvtls_write_t write_req;
   size_t length;
   char data[64 * 1024 + 5];
 };
 
-void on_connect(uvtls_connect_t *req, int status) {
+void on_connect(uvtls_connect_t* req, int status) {
   uv_buf_t buf;
-  request_t *request = (request_t *)req->data;
+  request_t* request = (request_t*) req->data;
 
   if (status != 0) {
     fprintf(stderr, "Failed to connect \"%s\"\n", uvtls_strerror(status));
@@ -30,10 +32,10 @@ void on_connect(uvtls_connect_t *req, int status) {
   }
 
   request->data[0] = 1;
-  request->data[1] = (char)((request->length >> 24) & 0xff);
-  request->data[2] = (char)((request->length >> 16) & 0xff);
-  request->data[3] = (char)((request->length >> 8) & 0xff);
-  request->data[4] = (char)((request->length) & 0xff);
+  request->data[1] = (char) ((request->length >> 24) & 0xff);
+  request->data[2] = (char) ((request->length >> 16) & 0xff);
+  request->data[3] = (char) ((request->length >> 8) & 0xff);
+  request->data[4] = (char) ((request->length) & 0xff);
   request->data[5] = 'a';
 
   buf.base = request->data;
@@ -47,28 +49,28 @@ void on_connect(uvtls_connect_t *req, int status) {
   uvtls_write(&request->write_req, req->tls, &buf, 1, on_write);
 }
 
-void on_tcp_connect(uv_connect_t *req, int status) {
-  request_t *request = (request_t *)req->data;
+void on_tcp_connect(uv_connect_t* req, int status) {
+  request_t* request = (request_t*) req->data;
   uvtls_connect(&request->connect_req, request->tls, on_connect);
 }
 
-void on_alloc(uvtls_t *tls, size_t suggested_size, uv_buf_t *buf) {
+void on_alloc(uvtls_t* tls, size_t suggested_size, uv_buf_t* buf) {
   static char data[64 * 1024];
   buf->base = data;
   buf->len = sizeof(data);
 }
 
-void on_read(uvtls_t *tls, ssize_t nread, const uv_buf_t *buf) {
+void on_read(uvtls_t* tls, ssize_t nread, const uv_buf_t* buf) {
   if (nread > 0) {
-    printf("client: %.*s\n", (int)nread, buf->base);
+    printf("client: %.*s\n", (int) nread, buf->base);
   } else {
     uvtls_close(tls, on_close);
   }
 }
 
-void on_write(uvtls_write_t *req, int status) {
+void on_write(uvtls_write_t* req, int status) {
   uv_buf_t buf;
-  request_t *request = (request_t *)req->data;
+  request_t* request = (request_t*) req->data;
 
   if (request->length == 0) {
     uvtls_close(req->tls, on_close);
@@ -86,7 +88,7 @@ void on_write(uvtls_write_t *req, int status) {
   uvtls_write(&request->write_req, req->tls, &buf, 1, on_write);
 }
 
-static const char *cert =
+static const char* cert =
     "-----BEGIN CERTIFICATE-----\n"
     "MIIDazCCAlOgAwIBAgIUNgd/YyO3R5N9POwL/k0w3owRZ8YwDQYJKoZIhvcNAQEL\n"
     "BQAwRTELMAkGA1UEBhMCQVUxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM\n"
@@ -109,7 +111,7 @@ static const char *cert =
     "GfMmS973Gk5+TU3g4Em9\n"
     "-----END CERTIFICATE-----";
 
-static const char *key =
+static const char* key =
     "-----BEGIN PRIVATE KEY-----\n"
     "MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCf128XN+VmcSJa\n"
     "QEvKfd69PzbbW0ogHAWZnfPukmXsd2sapO+0fG1poP8UJpEC1J7T8c76T6OUGbTh\n"
@@ -158,7 +160,7 @@ int main() {
 
   uvtls_context_add_trusted_certs(&tls_context_client, cert, strlen(cert));
 
-  uvtls_init(&tls_client, &tls_context_client, (uv_stream_t *)&client);
+  uvtls_init(&tls_client, &tls_context_client, (uv_stream_t*) &client);
 
   request.tls = &tls_client;
   request.length = 1024 * 1024 * 1024;
@@ -166,8 +168,8 @@ int main() {
   request.connect_req.data = &request;
 
   connect_req.data = &request;
-  uv_tcp_connect(&connect_req, &client, (const struct sockaddr *)&addr,
-                 on_tcp_connect);
+  uv_tcp_connect(
+      &connect_req, &client, (const struct sockaddr*) &addr, on_tcp_connect);
 
   uv_run(&loop, UV_RUN_DEFAULT);
 

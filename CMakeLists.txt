@@ -19,6 +19,9 @@ target_link_libraries(uvtls uv ssl crypto)
 
 add_executable(test-uvtls src/test/main.c src/test/test-ring-buf.c src/test/test-client.c)
 
+target_include_directories(test-uvtls PRIVATE include)
+target_include_directories(test-uvtls PRIVATE src)
+
 target_link_libraries(test-uvtls uvtls uv)
 
 ####
