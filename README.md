@@ -25,7 +25,7 @@ currently working on the following:
 Please feel free to contribute issues and PRs! Please run `clang-format` on your
 code before submitting.
 
-## Client examples
+## Client example
 
 ```c
 #include <uvtls.h>
