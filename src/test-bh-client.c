@@ -11,9 +11,9 @@ void on_close(uvtls_t* tls) {
   printf("client close\n");
 }
 
-typedef struct request_s request_t;
+typedef struct response_s response_t;
 
-struct request_s {
+struct response_s {
   uvtls_t* tls;
   uvtls_connect_t connect_req;
   uvtls_write_t write_req;
@@ -23,7 +23,7 @@ struct request_s {
 
 void on_connect(uvtls_connect_t* req, int status) {
   uv_buf_t buf;
-  request_t* request = (request_t*) req->data;
+  response_t* request = (response_t*) req->data;
 
   if (status != 0) {
     fprintf(stderr, "Failed to connect \"%s\"\n", uvtls_strerror(status));
@@ -50,7 +50,7 @@ void on_connect(uvtls_connect_t* req, int status) {
 }
 
 void on_tcp_connect(uv_connect_t* req, int status) {
-  request_t* request = (request_t*) req->data;
+  response_t* request = (response_t*) req->data;
   uvtls_connect(&request->connect_req, request->tls, on_connect);
 }
 
@@ -70,7 +70,7 @@ void on_read(uvtls_t* tls, ssize_t nread, const uv_buf_t* buf) {
 
 void on_write(uvtls_write_t* req, int status) {
   uv_buf_t buf;
-  request_t* request = (request_t*) req->data;
+  response_t* request = (response_t*) req->data;
 
   if (request->length == 0) {
     uvtls_close(req->tls, on_close);
@@ -148,7 +148,7 @@ int main() {
   uvtls_t tls_client;
   uvtls_context_t tls_context_client;
   uv_connect_t connect_req;
-  request_t request;
+  response_t request;
 
   uv_loop_init(&loop);
 

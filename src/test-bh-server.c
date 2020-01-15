@@ -60,7 +60,7 @@ static const char* key =
     "-----END PRIVATE KEY-----\n";
 
 typedef struct client_s client_t;
-typedef struct request_s request_t;
+typedef struct request_s response_t;
 
 typedef enum { OPCODE, LENGTH, BODY } client_state_t;
 typedef enum { UNKNOWN, READ, WRITE } client_opcode_t;
