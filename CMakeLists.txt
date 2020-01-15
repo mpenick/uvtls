@@ -23,37 +23,3 @@ target_include_directories(test-uvtls PRIVATE include)
 target_include_directories(test-uvtls PRIVATE src)
 
 target_link_libraries(test-uvtls uvtls uv)
-
-####
-
-add_executable(test-client-server src/test-client-server.c)
-
-target_include_directories(test-client-server PRIVATE include)
-target_include_directories(test-client-server PRIVATE src)
-
-target_link_libraries(test-client-server uvtls)
-
-####
-
-add_executable(test-bh-client src/test-bh-client.c)
-
-target_include_directories(test-bh-client PRIVATE include)
-target_include_directories(test-bh-client PRIVATE src)
-
-target_link_libraries(test-bh-client uvtls)
-
-####
-
-add_executable(test-bh-server src/test-bh-server.c)
-
-target_include_directories(test-bh-server PRIVATE include)
-target_include_directories(test-bh-server PRIVATE src)
-
-target_link_libraries(test-bh-server uvtls)
-
-####
-
-add_executable(test-ring-buf src/test-ring-buf.c src/ring-buf.c)
-
-target_include_directories(test-ring-buf PRIVATE include)
-target_include_directories(test-ring-buf PRIVATE src)
