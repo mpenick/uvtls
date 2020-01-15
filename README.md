@@ -18,7 +18,7 @@ currently working on the following:
 * Tests
 * Documentation
 * API refinement
-* Add support for other TLS/SSL libraries
+* Support for other TLS/SSL libraries
 
 ## Contributing
 
