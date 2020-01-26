@@ -19,18 +19,27 @@
  * IN THE SOFTWARE.
  */
 
-#include "test.h"
-#include "uvtls.h"
+#ifndef TEST_UTILS_H
+#define TEST_UTILS_H
 
-TEST_CASE_EXTERN(ring_buf);
-TEST_CASE_EXTERN(client);
+#include <string.h>
+#include <uv.h>
 
-TEST_SUITE_BEGIN(uvtls)
-  TEST_CASE_ENTRY(ring_buf)
-  TEST_CASE_ENTRY(client)
-  TEST_CASE_ENTRY_LAST()
-TEST_SUITE_END()
-
-int main(int argc, char** argv) {
-  return TEST_RUN_SUITE(uvtls, argc, argv);
+static void fill_pattern(char* buf, size_t size) {
+  size_t i;
+  const char* pattern = "012345678901234567890123456789012345678901";
+  for (i = 0; i < size; ++i) {
+    buf[i] = pattern[i % sizeof(pattern)];
+  }
 }
+
+static void copy_bufs(uv_buf_t* bufs, int nbufs, char* out) {
+  int i;
+  char* data = out;
+  for (i = 0; i < nbufs; ++i) {
+    memcpy(data, bufs[i].base, bufs[i].len);
+    data += bufs[i].len;
+  }
+}
+
+#endif /* TEST_UTILS_H */
