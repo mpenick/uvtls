@@ -19,18 +19,43 @@
  * IN THE SOFTWARE.
  */
 
-#include "test.h"
+#ifndef TEST_SERVER_H
+#define TEST_SERVER_H
+
 #include "uvtls.h"
 
-TEST_CASE_EXTERN(ring_buf);
-TEST_CASE_EXTERN(client);
+#define MAX_SERVER_CLIENTS 128
+#define SERVER_PORT 65443
 
-TEST_SUITE_BEGIN(uvtls)
-  TEST_CASE_ENTRY(ring_buf)
-  TEST_CASE_ENTRY(client)
-  TEST_CASE_ENTRY_LAST()
-TEST_SUITE_END()
+typedef struct server_s server_t;
+typedef struct client_s client_t;
+typedef struct client_write_s client_write_t;
 
-int main(int argc, char** argv) {
-  return TEST_RUN_SUITE(uvtls, argc, argv);
-}
+struct client_s {
+  uv_tcp_t tcp;
+  uvtls_t tls;
+  char buf[64 * 1024];
+  server_t* server;
+};
+
+struct server_s {
+  uv_tcp_t tcp;
+  uvtls_t tls;
+  uvtls_context_t tls_context;
+  uv_thread_t thread;
+  uv_loop_t loop;
+  uv_async_t async;
+  uv_sem_t sem;
+  client_t* clients[MAX_SERVER_CLIENTS];
+};
+
+struct client_write_s {
+  uvtls_write_t req;
+  char buf[64 * 1024];
+};
+
+
+void server_init(server_t* server);
+void server_close(server_t* server);
+
+#endif /* TEST_SERVER_H */
