@@ -120,7 +120,6 @@ static void on_async(uv_async_t* async) {
 
 static void on_run(void* arg) {
   server_t* server = (server_t*) arg;
-  FATAL(0 == uvtls_listen(&server->tls, 100, on_connection));
   uv_run(&server->loop, UV_RUN_DEFAULT);
 }
 
@@ -151,6 +150,8 @@ void server_init(server_t* server) {
   FATAL(0 == uvtls_init(&server->tls,
                         &server->tls_context,
                         (uv_stream_t*) &server->tcp));
+
+  FATAL(0 == uvtls_listen(&server->tls, 100, on_connection));
 
   FATAL(0 == uv_thread_create(&server->thread, on_run, server));
 }
