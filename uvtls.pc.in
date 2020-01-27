@@ -1,0 +1,12 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+
+Name: uvtls
+Description: TLS/SSL extension for libuv 
+Version: @PROJECT_VERSION@
+Requires.private:
+Libs: -L${libdir} -luvtls @LIBS@
+Libs.private: @LIBS@
+Cflags: -I${includedir}
