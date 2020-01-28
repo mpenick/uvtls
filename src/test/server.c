@@ -109,7 +109,9 @@ static void on_connection(uvtls_t* server, int status) {
   client_t* client = (client_t*) malloc(sizeof(client_t));
 
   client_init(client, (server_t*) server->data);
-  uvtls_accept(server, &client->tls, on_accept);
+
+  FATAL(0 == uv_accept(server->stream, client->tls.stream));
+  FATAL(0 == uvtls_accept(&client->tls, on_accept));
 }
 
 static void on_async(uv_async_t* async) {
