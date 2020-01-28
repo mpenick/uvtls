@@ -839,13 +839,9 @@ int uvtls_listen(uvtls_t* tls, int backlog, uvtls_connection_cb cb) {
   return uv_listen(tls->stream, backlog, on_connection);
 }
 
-int uvtls_accept(uvtls_t* server, uvtls_t* client, uvtls_accept_cb cb) {
+int uvtls_accept(uvtls_t* client, uvtls_accept_cb cb) {
+  int rc;
   uvtls_session_t* session = (uvtls_session_t*) client->impl;
-
-  int rc = uv_accept(server->stream, client->stream);
-  if (rc != 0) {
-    return rc;
-  }
 
   SSL_set_accept_state(session->ssl);
 
