@@ -547,9 +547,9 @@ static void on_handshake_write(uv_write_t* req, int status) {
   free(req);
 }
 
-static void on_handshake_connect_read(uv_stream_t* stream,
-                                      ssize_t nread,
-                                      const uv_buf_t* buf) {
+static void on_handshake_read(uv_stream_t* stream,
+                              ssize_t nread,
+                              const uv_buf_t* buf) {
   int rc;
   uvtls_t* tls = (uvtls_t*) stream->data;
   uvtls_session_t* session = (uvtls_session_t*) tls->impl;
@@ -557,7 +557,7 @@ static void on_handshake_connect_read(uv_stream_t* stream,
   if ((nread == UV_EOF && !SSL_is_init_finished(session->ssl)) ||
       (nread != UV_EOF && nread < 0)) {
     uv_read_stop(stream);
-    tls->connect_req->cb(tls->connect_req, (int) nread);
+    tls->handshake_done_cb(tls, (int) nread);
     return;
   }
 
@@ -566,37 +566,26 @@ static void on_handshake_connect_read(uv_stream_t* stream,
   rc = do_handshake(tls);
   if (rc != 0) {
     uv_read_stop(stream);
-    tls->connect_req->cb(tls->connect_req, rc);
+    tls->handshake_done_cb(tls, rc);
   } else if (SSL_is_init_finished(session->ssl)) {
     uv_read_stop(stream);
-    tls->connect_req->cb(tls->connect_req, verify(tls));
+    tls->handshake_done_cb(tls, verify(tls));
   }
 }
 
-static void on_handshake_accept_read(uv_stream_t* stream,
-                                     ssize_t nread,
-                                     const uv_buf_t* buf) {
-  int rc;
-  uvtls_t* tls = (uvtls_t*) stream->data;
-  uvtls_session_t* session = (uvtls_session_t*) tls->impl;
-
-  if ((nread == UV_EOF && !SSL_is_init_finished(session->ssl)) ||
-      (nread != UV_EOF && nread < 0)) {
-    uv_read_stop(stream);
-    tls->accept_cb(tls, (int) nread);
-    return;
-  }
-
-  uvtls_ring_buf_tail_block_commit(&tls->incoming, (int) nread);
-
-  rc = do_handshake(tls);
+static int handshake(uvtls_t* tls,
+                     uvtls_session_t* session,
+                     uvtls_handshake_done_cb cb) {
+  int rc = do_handshake(tls);
+  assert(!SSL_is_init_finished(session->ssl) &&
+         "Handshake shouldn't be finished");
   if (rc != 0) {
-    uv_read_stop(stream);
-    tls->accept_cb(tls, rc);
-  } else if (SSL_is_init_finished(session->ssl)) {
-    uv_read_stop(stream);
-    tls->accept_cb(tls, 0);
+    return UVTLS_EHANDSHAKE;
   }
+
+  tls->stream->data = tls;
+  tls->handshake_done_cb = cb;
+  return uv_read_start(tls->stream, on_alloc, on_handshake_read);
 }
 
 static void do_read(uvtls_t* tls) {
@@ -751,7 +740,7 @@ int uvtls_init(uvtls_t* tls, uvtls_context_t* context, uv_stream_t* stream) {
   tls->alloc_cb = NULL;
   tls->alloc_buf = uv_buf_init(NULL, 0);
   tls->read_cb = NULL;
-  tls->connect_req = NULL;
+  tls->handshake_done_cb = NULL;
   tls->connection_cb = NULL;
   tls->commit_pos = uvtls_ring_buf_pos_init(0, NULL);
   tls->close_cb = NULL;
@@ -797,25 +786,10 @@ int uvtls_set_hostname(uvtls_t* tls, const char* hostname, size_t length) {
   return 0;
 }
 
-int uvtls_connect(uvtls_connect_t* req, uvtls_t* tls, uvtls_connect_cb cb) {
-  int rc;
+int uvtls_connect(uvtls_t* tls, uvtls_connect_cb cb) {
   uvtls_session_t* session = (uvtls_session_t*) tls->impl;
-
-  req->tls = tls;
-  req->cb = cb;
-  tls->stream->data = tls;
-  tls->connect_req = req;
-
   SSL_set_connect_state(session->ssl);
-
-  rc = do_handshake(tls);
-  assert(!SSL_is_init_finished(session->ssl) &&
-         "Handshake shouldn't be finished");
-  if (rc != 0) {
-    return UVTLS_EHANDSHAKE;
-  }
-
-  return uv_read_start(tls->stream, on_alloc, on_handshake_connect_read);
+  return handshake(tls, session, cb);
 }
 
 int uvtls_is_closing(uvtls_t* tls) {
@@ -839,22 +813,10 @@ int uvtls_listen(uvtls_t* tls, int backlog, uvtls_connection_cb cb) {
   return uv_listen(tls->stream, backlog, on_connection);
 }
 
-int uvtls_accept(uvtls_t* client, uvtls_accept_cb cb) {
-  int rc;
-  uvtls_session_t* session = (uvtls_session_t*) client->impl;
-
+int uvtls_accept(uvtls_t* tls, uvtls_accept_cb cb) {
+  uvtls_session_t* session = (uvtls_session_t*) tls->impl;
   SSL_set_accept_state(session->ssl);
-
-  rc = do_handshake(client);
-  assert(!SSL_is_init_finished(session->ssl) &&
-         "Handshake shouldn't be finished");
-  if (rc != 0) {
-    return UVTLS_EHANDSHAKE;
-  }
-
-  client->stream->data = client;
-  client->accept_cb = cb;
-  return uv_read_start(client->stream, on_alloc, on_handshake_accept_read);
+  return handshake(tls, session, cb);
 }
 
 int uvtls_read_start(uvtls_t* tls,

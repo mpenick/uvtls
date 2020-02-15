@@ -35,7 +35,6 @@ static server_t server;
 struct client_test_s {
   uv_tcp_t tcp;
   uvtls_t tls;
-  uvtls_connect_t connect_req;
   uvtls_write_t write_req;
   char read_buf[64 * 1024];
   char in[UVTLS_RING_BUF_BLOCK_SIZE + 1];
@@ -84,8 +83,8 @@ static void on_write(uvtls_write_t* req, int status) {
 }
 
 
-static void on_connect(uvtls_connect_t* req, int status) {
-  client_test_t* client = (client_test_t*) req->tls->data;
+static void on_connect(uvtls_t* tls, int status) {
+  client_test_t* client = (client_test_t*) tls->data;
 
   uv_buf_t buf;
 
@@ -93,12 +92,12 @@ static void on_connect(uvtls_connect_t* req, int status) {
 
   buf.base = client->in;
   buf.len = sizeof(client->in);
-  uvtls_write(&client->write_req, req->tls, &buf, 1, on_write);
+  uvtls_write(&client->write_req, tls, &buf, 1, on_write);
 }
 
 static void on_tcp_connect(uv_connect_t* req, int status) {
   client_test_t* client = (client_test_t*) req->data;
-  uvtls_connect(&client->connect_req, &client->tls, on_connect);
+  uvtls_connect(&client->tls, on_connect);
 }
 
 TEST(connect) {
@@ -145,16 +144,16 @@ TEST(connect) {
   uv_loop_close(&loop);
 }
 
-static void on_connect_verify_cert(uvtls_connect_t* req, int status) {
-  client_test_t* client = (client_test_t*) req->tls->data;
+static void on_connect_verify_cert(uvtls_t* tls, int status) {
+  client_test_t* client = (client_test_t*) tls->data;
   client->was_connect_cb_called = 1;
   ASSERT(0 == status);
-  uvtls_close(req->tls, on_close);
+  uvtls_close(tls, on_close);
 }
 
 static void on_tcp_connect_verify_cert(uv_connect_t* req, int status) {
   client_test_t* client = (client_test_t*) req->data;
-  uvtls_connect(&client->connect_req, &client->tls, on_connect_verify_cert);
+  uvtls_connect(&client->tls, on_connect_verify_cert);
 }
 
 TEST(verify_peer_cert) {
@@ -197,16 +196,16 @@ TEST(verify_peer_cert) {
   uv_loop_close(&loop);
 }
 
-static void on_connect_bad_cert(uvtls_connect_t* req, int status) {
-  client_test_t* client = (client_test_t*) req->tls->data;
+static void on_connect_bad_cert(uvtls_t* tls, int status) {
+  client_test_t* client = (client_test_t*) tls->data;
   client->was_connect_cb_called = 1;
   ASSERT(UVTLS_EBADPEERCERT == status);
-  uvtls_close(req->tls, on_close);
+  uvtls_close(tls, on_close);
 }
 
 static void on_tcp_connect_bad_cert(uv_connect_t* req, int status) {
   client_test_t* client = (client_test_t*) req->data;
-  uvtls_connect(&client->connect_req, &client->tls, on_connect_bad_cert);
+  uvtls_connect(&client->tls, on_connect_bad_cert);
 }
 
 TEST(verify_bad_peer_cert) {
@@ -246,16 +245,16 @@ TEST(verify_bad_peer_cert) {
   uv_loop_close(&loop);
 }
 
-static void on_connect_bad_ident(uvtls_connect_t* req, int status) {
-  client_test_t* client = (client_test_t*) req->tls->data;
+static void on_connect_bad_ident(uvtls_t* tls, int status) {
+  client_test_t* client = (client_test_t*) tls->data;
   client->was_connect_cb_called = 1;
   ASSERT(UVTLS_EBADPEERIDENT == status);
-  uvtls_close(req->tls, on_close);
+  uvtls_close(tls, on_close);
 }
 
 static void on_tcp_connect_bad_ident(uv_connect_t* req, int status) {
   client_test_t* client = (client_test_t*) req->data;
-  uvtls_connect(&client->connect_req, &client->tls, on_connect_bad_ident);
+  uvtls_connect(&client->tls, on_connect_bad_ident);
 }
 
 TEST(verify_bad_peer_ident) {
@@ -297,16 +296,16 @@ TEST(verify_bad_peer_ident) {
   uv_loop_close(&loop);
 }
 
-static void on_connect_verify_ident(uvtls_connect_t* req, int status) {
-  client_test_t* client = (client_test_t*) req->tls->data;
+static void on_connect_verify_ident(uvtls_t* tls, int status) {
+  client_test_t* client = (client_test_t*) tls->data;
   client->was_connect_cb_called = 1;
   ASSERT(0 == status);
-  uvtls_close(req->tls, on_close);
+  uvtls_close(tls, on_close);
 }
 
 static void on_tcp_connect_verify_ident(uv_connect_t* req, int status) {
   client_test_t* client = (client_test_t*) req->data;
-  uvtls_connect(&client->connect_req, &client->tls, on_connect_verify_ident);
+  uvtls_connect(&client->tls, on_connect_verify_ident);
 }
 
 TEST(verify_peer_ident) {

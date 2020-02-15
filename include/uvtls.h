@@ -39,7 +39,6 @@
 typedef struct uvtls_context_s uvtls_context_t;
 typedef struct uvtls_s uvtls_t;
 typedef struct uvtls_write_s uvtls_write_t;
-typedef struct uvtls_connect_s uvtls_connect_t;
 
 typedef void (*uvtls_alloc_cb)(uvtls_t* tls,
                                size_t suggested_size,
@@ -47,11 +46,15 @@ typedef void (*uvtls_alloc_cb)(uvtls_t* tls,
 typedef void (*uvtls_read_cb)(uvtls_t* tls,
                               ssize_t nread,
                               const uv_buf_t* buf);
+
+typedef void (*uvtls_handshake_done_cb)(uvtls_t* tls, int status);
+typedef uvtls_handshake_done_cb uvtls_connect_cb;
+typedef uvtls_handshake_done_cb uvtls_accept_cb;
 typedef void (*uvtls_connection_cb)(uvtls_t* server, int status);
-typedef void (*uvtls_accept_cb)(uvtls_t* client, int status);
-typedef void (*uvtls_connect_cb)(uvtls_connect_t* req, int status);
+
 typedef void (*uvtls_close_cb)(uvtls_t* tls);
 typedef void (*uvtls_write_cb)(uvtls_write_t* req, int status);
+
 
 #define UVTLS__ERR(x) (UV_ERRNO_MAX - (x))
 
@@ -96,17 +99,10 @@ struct uvtls_s {
   uvtls_alloc_cb alloc_cb;
   uv_buf_t alloc_buf;
   uvtls_read_cb read_cb;
-  uvtls_connect_t* connect_req;
+  uvtls_handshake_done_cb handshake_done_cb;
   uvtls_connection_cb connection_cb;
-  uvtls_accept_cb accept_cb;
   uvtls_ring_buf_pos_t commit_pos;
   uvtls_close_cb close_cb;
-};
-
-struct uvtls_connect_s {
-  void* data;
-  uvtls_t* tls;
-  uvtls_connect_cb cb;
 };
 
 struct uvtls_write_s {
@@ -148,7 +144,7 @@ int uvtls_init(uvtls_t* tls, uvtls_context_t* context, uv_stream_t* stream);
 
 int uvtls_set_hostname(uvtls_t* tls, const char* hostname, size_t length);
 
-int uvtls_connect(uvtls_connect_t* req, uvtls_t* tls, uvtls_connect_cb cb);
+int uvtls_connect(uvtls_t* tls, uvtls_connect_cb cb);
 
 int uvtls_is_closing(uvtls_t* tls);
 void uvtls_close(uvtls_t* tls, uvtls_close_cb cb);
