@@ -602,14 +602,15 @@ static void do_read(uvtls_t* tls) {
       assert(buf->len <= INT_MAX && "Allocate read buf is too big");
     }
     nread = SSL_read(session->ssl, buf->base, (int) buf->len);
-    if (nread < 0) {
+    if (nread <= 0) {
       int error = SSL_get_error(session->ssl, nread);
       if (error == SSL_ERROR_WANT_READ) {
-        break;
+        /* Wait for next read */
       } else {
-        tls->read_cb(tls, UVTLS_EREAD, buf);
-        return;
+        tls->read_cb(
+            tls, error == SSL_ERROR_ZERO_RETURN ? UV_EOF : UVTLS_EREAD, buf);
       }
+      return;
     }
     tls->read_cb(tls, nread, buf);
     *buf = uv_buf_init(NULL, 0);
