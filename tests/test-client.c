@@ -31,7 +31,6 @@ typedef struct client_test_s client_test_t;
 
 static server_t server;
 
-
 struct client_test_s {
   uv_tcp_t tcp;
   uvtls_t tls;
@@ -81,7 +80,6 @@ static void on_read(uvtls_t* tls, ssize_t nread, const uv_buf_t* buf) {
 static void on_write(uvtls_write_t* req, int status) {
   uvtls_read_start(req->tls, on_alloc, on_read);
 }
-
 
 static void on_connect(uvtls_t* tls, int status) {
   client_test_t* client = (client_test_t*) tls->data;
