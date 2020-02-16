@@ -8,6 +8,15 @@ TLS/SSL extension for [libuv] that tries to conform to its style and idioms.
 If you're used to using libuv then it should be easy for you to pick up uvtls
 and integrate it into your application.
 
+## To build
+
+```
+mkdir build
+cd build
+cmake ..
+make
+```
+
 ## Features
 
 * Client-side support
