@@ -165,12 +165,12 @@ int uvtls_write(uvtls_write_t* req,
                 uvtls_write_cb cb);
 
 const char* uvtls_err_name(int err);
-#if UV_VERSION_HEX >= 012200
+#if UV_VERSION_HEX >= 0x011600 /* 1.22.0 */
 char* uvtls_err_name_r(int error, char* buf, size_t buflen);
 #endif
 
 const char* uvtls_strerror(int err);
-#if UV_VERSION_HEX >= 012200
+#if UV_VERSION_HEX >= 0x011600 /* 1.22.0 */
 char* uvtls_strerror_r(int error, char* buf, size_t buflen);
 #endif
 

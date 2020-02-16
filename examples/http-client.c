@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
   char* host;
 
   if (argc <= 1) {
-    fprintf(stderr, "Usage: %s <host>", argv[0]);
+    fprintf(stderr, "Usage: %s <host>\n", argv[0]);
     return 1;
   }
 

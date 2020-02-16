@@ -32,7 +32,7 @@ const char* uvtls_err_name(int err) {
 }
 #undef UVTLS_ERR_NAME_GEN
 
-#if UV_VERSION_HEX >= 012200
+#if UV_VERSION_HEX >= 0x011600 /* 1.22.0 */
 #define UVTLS_ERR_NAME_GEN_R(name, _) \
   case UVTLS_##name:                  \
     strncpy(buf, #name, buflen);      \
@@ -57,7 +57,7 @@ const char* uvtls_strerror(int err) {
 }
 #undef UVTLS_STRERROR_GEN
 
-#if UV_VERSION_HEX >= 012200
+#if UV_VERSION_HEX >= 0x011600 /* 1.22.0 */
 #define UVTLS_STRERROR_GEN_R(name, msg) \
   case UVTLS_##name:                    \
     snprintf(buf, buflen, "%s", msg);   \
