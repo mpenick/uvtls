@@ -1,0 +1,21 @@
+version: 1.0.'{build}'
+
+image:
+ - Visual Studio 2017
+
+configuration: Release
+
+platform: x64
+
+environment:
+  VCPKG_ROOT: C:\tools\vcpkg
+
+cache:
+ - C:\tools\vcpkg
+
+build_script:
+  - cmd: cd C:\tools\vcpkg && git update
+  - cmd: cd %APPVEYOR_BUILD_FOLDER%
+  - cmd: vcpkg remove openssl --recurse
+  - cmd: vcpkg install libuv
+  - cmd: vcpkg install openssl-windows

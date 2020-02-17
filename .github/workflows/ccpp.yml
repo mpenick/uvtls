@@ -1,0 +1,40 @@
+  
+name: uvtls CI
+
+on: [push]
+
+jobs:
+
+  build-windows:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+        arch: [Win32, x64]
+        include:
+          - arch: x64
+            vcpkg-triplet: x64-windows
+          - arch: Win32
+            vcpkg-triplet: x86-windows
+    steps:
+    - uses: actions/checkout@v1
+    - name: Cache vcpkg installed
+      uses: actions/cache@v1
+      with:
+        key: vcpkg-${{ matrix.os }}-${{ matrix.arch }}
+        path: C:/vcpkg/installed
+    - name: Install deps vcpkg
+      run: vcpkg install libuv openssl-windows --triplet ${{ matrix.vcpkg-triplet }}
+    - name: Create Build Environment
+      run: cmake -E make_directory ${{runner.workspace}}/build
+    - name: Configure cmake
+      working-directory: ${{runner.workspace}}/build
+      run: cmake $env:GITHUB_WORKSPACE -DCMAKE_GENERATOR_PLATFORM=${{matrix.arch}} -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+    - name: Build
+      working-directory: ${{runner.workspace}}/build
+      run: cmake --build .
+    - name: Tests
+      working-directory: ${{runner.workspace}}/build
+      run: |
+        tests\Debug\test-uvtls.exe
