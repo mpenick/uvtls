@@ -17,6 +17,16 @@ cmake ..
 make
 ```
 
+## To build with vcpkg on Windows
+```
+vcpkg install openssl-windows
+vcpkg install libuv
+mkdir build
+cd build
+cmake ..
+make
+```
+
 ## Features
 
 * Client-side support
