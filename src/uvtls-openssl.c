@@ -37,6 +37,15 @@
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
+#define BIO_get_data(b) ((b)->ptr)
+#define BIO_set_data(b, p) ((b)->ptr = p)
+#define BIO_set_init(b, i) ((b)->init = i)
+#define BIO_get_shutdown(b) ((b)->shutdown)
+#define BIO_set_shutdown(b, s) ((b)->shutdown = s)
+#define ASN1_STRING_get0_data ASN1_STRING_data
+#endif
+
 #if (OPENSSL_VERSION_NUMBER >= 0x10100000L || \
      LIBRESSL_VERSION_NUMBER >= 0x20302000L)
 #define UVTLS_METHOD TLS_method
@@ -134,7 +143,9 @@ void ring_buf_bio_init() {
 static uv_once_t ring_buf_init_guard__ = UV_ONCE_INIT;
 
 static void ring_buf_bio_init_once() {
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
   uv_once(&ring_buf_init_guard__, ring_buf_bio_init);
+#endif
 }
 
 uvtls_ring_buf_t* ring_buf_from_bio(BIO* bio) {
@@ -248,7 +259,7 @@ long ring_buf_bio_ctrl(BIO* bio, int cmd, long num, void* ptr) {
 
 BIO* create_bio(uvtls_ring_buf_t* rb) {
 #if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
-  BIO* bio = BIO_new(const_cast<BIO_METHOD*>(&method_));
+  BIO* bio = BIO_new((BIO_METHOD*) &method__);
 #else
   BIO* bio = BIO_new(method__);
 #endif
@@ -314,7 +325,11 @@ static uvtls_session_t* uvtls_session_create(SSL_CTX* ssl_ctx,
   uvtls_session_t* session =
       (uvtls_session_t*) malloc(sizeof(uvtls_session_t));
 
+  /* FIXME < 1.1.0 */
+#if (OPENSSL_VERSION_NUMBER >= 0x10100000L || \
+     LIBRESSL_VERSION_NUMBER >= 0x20302000L)
   SSL_CTX_up_ref(ssl_ctx);
+#endif
 
   session->ssl = SSL_new(ssl_ctx);
   session->incoming_bio = create_bio(incoming);
@@ -559,17 +574,17 @@ static void on_handshake_read(uv_stream_t* stream,
     uv_read_stop(stream);
     tls->handshake_done_cb(tls, (int) nread);
     return;
-  }
+  } else if (nread > 0) {
+    uvtls_ring_buf_tail_block_commit(&tls->incoming, (int) nread);
 
-  uvtls_ring_buf_tail_block_commit(&tls->incoming, (int) nread);
-
-  rc = do_handshake(tls);
-  if (rc != 0) {
-    uv_read_stop(stream);
-    tls->handshake_done_cb(tls, rc);
-  } else if (SSL_is_init_finished(session->ssl)) {
-    uv_read_stop(stream);
-    tls->handshake_done_cb(tls, verify(tls));
+    rc = do_handshake(tls);
+    if (rc != 0) {
+      uv_read_stop(stream);
+      tls->handshake_done_cb(tls, rc);
+    } else if (SSL_is_init_finished(session->ssl)) {
+      uv_read_stop(stream);
+      tls->handshake_done_cb(tls, verify(tls));
+    }
   }
 }
 
@@ -623,11 +638,10 @@ static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
   if (nread < 0) {
     tls->read_cb(tls, nread, buf);
     return;
+  } else if (nread > 0) {
+    uvtls_ring_buf_tail_block_commit(&tls->incoming, (int) nread);
+    do_read(tls);
   }
-
-  uvtls_ring_buf_tail_block_commit(&tls->incoming, (int) nread);
-
-  do_read(tls);
 }
 
 static void on_write(uv_write_t* req, int status) {
@@ -640,7 +654,10 @@ static void on_write(uv_write_t* req, int status) {
 static void on_close(uv_handle_t* handle) {
   uvtls_t* tls = (uvtls_t*) handle->data;
   uvtls_session_t* session = (uvtls_session_t*) tls->impl;
+#if (OPENSSL_VERSION_NUMBER >= 0x10100000L || \
+     LIBRESSL_VERSION_NUMBER >= 0x20302000L)
   SSL_CTX_free(SSL_get_SSL_CTX(session->ssl));
+#endif
   SSL_free(session->ssl);
   free(session);
   if (tls->close_cb) {
@@ -823,13 +840,29 @@ int uvtls_accept(uvtls_t* tls, uvtls_accept_cb cb) {
 int uvtls_read_start(uvtls_t* tls,
                      uvtls_alloc_cb alloc_cb,
                      uvtls_read_cb read_cb) {
+  int rc;
+
   tls->stream->data = tls;
   tls->alloc_cb = alloc_cb;
   tls->read_cb = read_cb;
 
   do_read(tls); /* Process existing ring buffer data  */
 
-  return uv_read_start(tls->stream, on_alloc, on_read);
+  rc = uv_read_start(tls->stream, on_alloc, on_read);
+
+  /* FIXME: Keep version updated until a fix is merged */
+#if defined(_WIN32) && UV_VERSION_HEX <= 0x012202 /* 1.34.2 */
+  if (rc == 0 && tls->stream->reqs_pending > 0) {
+    /* This workaround sets the read pending flag correctly in cases where it
+     * should be set e.g when there's an internal WSAECONNABORTED
+     * error after reads are restarted on a half open connection.
+     * Issue: https://github.com/libuv/libuv/issues/2687 
+     */
+    tls->stream->flags |= 0x00010000; /* UV_HANDLE_READ_PENDING */
+  }
+#endif
+
+  return rc;
 }
 
 int uvtls_read_stop(uvtls_t* tls) {

@@ -21,8 +21,13 @@
 
 #include "test.h"
 
+#ifdef _WIN32
+#define GREEN_(s) s
+#define RED_(s) s
+#else
 #define GREEN_(s) "\033[0;32m" s "\033[0m"
 #define RED_(s) "\033[0;31m" s "\033[0m"
+#endif
 
 static int match(const char* p, const char* s) {
   size_t px = 0, next_px = 0, sx = 0, next_sx = 0;
