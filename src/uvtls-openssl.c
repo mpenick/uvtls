@@ -83,7 +83,7 @@ static void debug_info_callback(const SSL* ssl, int where, int ret) {
 
 static uv_once_t lib_init_guard__ = UV_ONCE_INIT;
 
-static void lib_cleanup() {
+static void lib_cleanup(void) {
   RAND_cleanup();
   ENGINE_cleanup();
   CONF_modules_unload(1);
@@ -98,7 +98,7 @@ static void lib_cleanup() {
 #endif
 }
 
-static void lib_init() {
+static void lib_init(void) {
   SSL_library_init();
   SSL_load_error_strings();
   OpenSSL_add_all_algorithms();
@@ -126,7 +126,7 @@ const BIO_METHOD method__ = {BIO_TYPE_MEM,
                              NULL};
 #else
 static BIO_METHOD* method__ = NULL;
-void ring_buf_bio_init() {
+void ring_buf_bio_init(void) {
   method__ = BIO_meth_new(BIO_TYPE_MEM, "ring buf");
   if (method__) {
     BIO_meth_set_write(method__, ring_buf_bio_write);
@@ -142,7 +142,7 @@ void ring_buf_bio_init() {
 
 static uv_once_t ring_buf_init_guard__ = UV_ONCE_INIT;
 
-static void ring_buf_bio_init_once() {
+static void ring_buf_bio_init_once(void) {
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L
   uv_once(&ring_buf_init_guard__, ring_buf_bio_init);
 #endif
@@ -342,7 +342,7 @@ static uvtls_session_t* uvtls_session_create(SSL_CTX* ssl_ctx,
 
 static void on_handshake_write(uv_write_t* req, int status);
 
-static void ssl_print_error() {
+static void ssl_print_error(void) {
   const char* data;
   int flags;
   unsigned long err;
