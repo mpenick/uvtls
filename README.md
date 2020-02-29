@@ -17,6 +17,21 @@ cmake ..
 make
 ```
 
+## To build on Windows (with vcpkg)
+```
+vcpkg install openssl-windows
+vcpkg install libuv
+mkdir build
+cd build
+cmake -G "Visual Studio 14 2015" ^
+  -DCMAKE_TOOLCHAIN_FILE="C:/<path_to_vcpkg>/vcpkg/scripts/buildsystems/vcpkg.cmake" ^
+  -DVCPKG_TARGET_TRIPLET=x86-windows ..
+cmake --build . --config RelWithDebInfo
+```
+
+**Important:** Update `<path_to_vcpkg>` to your installed vcpkg path and the
+  cmake generator (`-G "Visual Studio 14 2015`) to your installed MSVC version.
+
 ## Features
 
 * Client-side support

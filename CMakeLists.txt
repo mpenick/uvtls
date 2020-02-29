@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
+
 project(uvtls VERSION 0.1 DESCRIPTION "TLS for libuv")
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
