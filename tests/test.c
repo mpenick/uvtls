@@ -21,6 +21,8 @@
 
 #include "test.h"
 
+#include <inttypes.h>
+
 #ifdef _WIN32
 #define GREEN_(s) s
 #define RED_(s) s
@@ -282,8 +284,8 @@ int test_run_suite_(test_suite_t* suite, int argc, char** argv) {
       }
 
       fprintf(stderr,
-              test->result == OK ? GREEN_("[ %8s ]") " %s.%s (%lu ms)\n"
-                                 : RED_("[ %8s ]") " %s.%s (%lu ms)\n",
+              test->result == OK ? GREEN_("[ %8s ]") " %s.%s (%" PRIu64 " ms)\n"
+                                 : RED_("[ %8s ]") " %s.%s (%" PRIu64 " ms)\n",
               test->result == OK ? "OK" : "FAILED",
               test_case->name,
               test->name,
@@ -291,7 +293,7 @@ int test_run_suite_(test_suite_t* suite, int argc, char** argv) {
     }
 
     fprintf(stderr,
-            GREEN_("[----------]") " %d tests from %s (%lu ms total)\n\n",
+            GREEN_("[----------]") " %d tests from %s (%" PRIu64 " ms total)\n",
             count,
             test_case->name,
             test_elapsed_ms(start_case));
@@ -299,8 +301,7 @@ int test_run_suite_(test_suite_t* suite, int argc, char** argv) {
 
   fprintf(
       stderr,
-      GREEN_(
-          "[==========]") " %d tests ran from %d test cases. (%lu ms total)\n",
+      GREEN_("[==========]") " %d tests ran from %d test cases. (%" PRIu64 " ms total)\n",
       ntests,
       ncases,
       test_elapsed_ms(start_suite));
