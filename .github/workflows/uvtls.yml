@@ -1,9 +1,21 @@
-  
 name: uvtls CI
 
 on: [push]
 
 jobs:
+  build-ubuntu:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install deps
+      run: sudo apt-get install libuv1-dev
+    - name: Configure
+      run: mkdir build && cd build && cmake ..
+    - name: Build
+      run: cmake --build build
+    - name: Tests
+      run: cd build && ./tests/test-uvtls
 
   build-windows:
     runs-on: ${{ matrix.os }}
