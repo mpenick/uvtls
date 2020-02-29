@@ -45,7 +45,6 @@ struct server_s {
   uv_thread_t thread;
   uv_loop_t loop;
   uv_async_t async;
-  uv_sem_t sem;
   client_t* clients[MAX_SERVER_CLIENTS];
 };
 
